@@ -89,18 +89,16 @@ jobs:
 
               if [ -f "downloads/$name" ]; then
                 echo "LOG: downloads/$name の LLVM IR 化（RetDec）を開始します..."
-                output_bc="downloads/${name}.bc"
+                
+                # RetDecを実行 (.c を出力先に指定すると自動的に .ll も生成される)
+                "$RETDEC_PATH" "downloads/$name" -o "downloads/${name}.c"
+
+                # 生成された LLVM IR (.ll) ファイルを探して移動
+                GENERATED_LL=$(find downloads/ -name "${name}*.ll" | head -n 1)
                 output_ll="llvm_ir_output/$group/${name}.ll"
 
-                # RetDecを実行して LLVM Bitcode (.bc) を抽出
-                "$RETDEC_PATH" --stop-after=llvmir "downloads/$name" -o "$output_bc"
-
-                # LLVM Disassemblerでテキスト表記 (.ll) に変換
-                if [ -f "$output_bc" ]; then
-                  llvm-dis "$output_bc" -o "$output_ll"
-                  echo "LOG: LLVM IR 変換成功 -> $output_ll"
-                elif [ -f "downloads/${name}.ll" ]; then
-                  mv "downloads/${name}.ll" "$output_ll"
+                if [ -n "$GENERATED_LL" ] && [ -f "$GENERATED_LL" ]; then
+                  mv "$GENERATED_LL" "$output_ll"
                   echo "LOG: LLVM IR 変換成功 -> $output_ll"
                 else
                   echo "LOG: エラー - $name の LLVM IR 化に失敗しました。"
