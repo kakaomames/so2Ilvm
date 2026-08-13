@@ -1,4 +1,4 @@
-name: Decompile SO to LLVM IR via JSON Config 🚀
+name: Decompile SO to LLVM IR via JSON Config 🚀v1
 
 on:
   push:
