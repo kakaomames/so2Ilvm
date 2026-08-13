@@ -90,8 +90,14 @@ jobs:
               if [ -f "downloads/$name" ]; then
                 echo "LOG: downloads/$name の LLVM IR 化（RetDec）を開始します..."
                 
-                # RetDecを実行 (.c を出力先に指定すると自動的に .ll も生成される)
-                "$RETDEC_PATH" "downloads/$name" -o "downloads/${name}.c"
+                # アーキテクチャのパラメータ組み立て (arch指定がある場合)
+                ARCH_OPT=""
+                if [ "$arch" != "null" ] && [ "$arch" != "unknown" ] && [ -n "$arch" ]; then
+                  ARCH_OPT="-a $arch"
+                fi
+
+                # RetDecを実行（失敗時もワークフローを中断させずにログを残す）
+                "$RETDEC_PATH" $ARCH_OPT "downloads/$name" -o "downloads/${name}.c" || echo "LOG: 警告 - RetDec実行中にエラーが発生しましたが、生成済みファイルのチェックを行います。"
 
                 # 生成された LLVM IR (.ll) ファイルを探して移動
                 GENERATED_LL=$(find downloads/ -name "${name}*.ll" | head -n 1)
@@ -101,7 +107,7 @@ jobs:
                   mv "$GENERATED_LL" "$output_ll"
                   echo "LOG: LLVM IR 変換成功 -> $output_ll"
                 else
-                  echo "LOG: エラー - $name の LLVM IR 化に失敗しました。"
+                  echo "LOG: エラー - $name の LLVM IR 化に失敗しました（生成ファイルなし）。"
                 fi
               else
                 echo "LOG: エラー - $name のダウンロードに失敗しました。"
