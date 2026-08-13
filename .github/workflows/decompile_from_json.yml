@@ -30,53 +30,46 @@ jobs:
       - name: Create Direct Binary to LLVM IR Lifter 🐍
         run: |
           cat << 'EOF' > binary_to_ir.py
-          import sys, struct
+import sys, struct
 
-          def binary_to_llvm_ir(bin_path, ir_path):
-              ir_lines = [
-                  '; ModuleID = "recompiled_arm64_raw"',
-                  'target datalayout = "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"',
-                  'target triple = "wasm32-unknown-unknown"\n',
-                  'define void @main_entry() {\nentry:'
-              ]
+def binary_to_llvm_ir(bin_path, ir_path):
+    instruction_count = 0
+    try:
+        # メモリを節約するため、配列に溜め込まずファイルへ直接書き出す！
+        with open(bin_path, 'rb') as f_in, open(ir_path, 'w', encoding='utf-8') as f_out:
+            f_out.write('; ModuleID = "recompiled_arm64_raw"\n')
+            f_out.write('target datalayout = "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"\n')
+            f_out.write('target triple = "wasm32-unknown-unknown"\n\n')
+            f_out.write('define void @main_entry() {\nentry:\n')
 
-              instruction_count = 0
-              try:
-                  with open(bin_path, 'rb') as f:
-                      addr = 0
-                      while True:
-                          # ARM64 は固定長 4 バイト (32bit) 命令
-                          chunk = f.read(4)
-                          if not chunk or len(chunk) < 4:
-                              break
-                          
-                          # 4バイトを16進数数値とバイト列に変換
-                          val = struct.unpack('<I', chunk)[0]
-                          hex_str = f"{val:08x}"
-                          
-                          # 中間表現 (LLVM IR) のカスタムノードとして出力
-                          ir_lines.append(f'  ; block_0x{addr:08x}: instruction 0x{hex_str}')
-                          ir_lines.append(f'  call void @arm64_inst_0x{hex_str}()')
-                          
-                          instruction_count += 1
-                          addr += 4
+            addr = 0
+            while True:
+                # ARM64 は固定長 4 バイト (32bit)
+                chunk = f_in.read(4)
+                if not chunk or len(chunk) < 4:
+                    break
+                
+                val = struct.unpack('<I', chunk)[0]
+                hex_str = f"{val:08x}"
+                
+                # 1行ずつ即時書き出し
+                f_out.write(f'  ; block_0x{addr:08x}: instruction 0x{hex_str}\n')
+                f_out.write(f'  call void @arm64_inst_0x{hex_str}()\n')
+                
+                instruction_count += 1
+                addr += 4
 
-              except Exception as e:
-                  print(f"Error reading binary: {e}")
+            f_out.write('  ret void\n}\n')
 
-              ir_lines.append('  ret void\n}')
-              
-              # 呼び出し用ダミー定義（LLVM IRの構文エラーを防ぐ）
-              ir_lines.append('\ndeclare void @arm64_inst_0x00000000()')
+    except Exception as e:
+        print(f"Error processing binary: {e}")
 
-              print(f"LOG: 抽出・構造化された命令 (中間表現ブロック) 数: {instruction_count}")
+    print(f"LOG: 抽出・構造化された命令 (中間表現ブロック) 数: {instruction_count}")
 
-              with open(ir_path, 'w', encoding='utf-8') as f:
-                  f.write('\n'.join(ir_lines))
+if __name__ == '__main__':
+    binary_to_llvm_ir(sys.argv[1], sys.argv[2])
+EOF
 
-          if __name__ == '__main__':
-              binary_to_llvm_ir(sys.argv[1], sys.argv[2])
-          EOF
           echo "LOG: バイナリ中間表現コンバーター (binary_to_ir.py) 作成完了！"
 
       - name: Download SO, Lift to IR and Compile to WASM/EXE ⚙️
