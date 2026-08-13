@@ -26,7 +26,7 @@ jobs:
         run: |
           echo "LOG: RetDec のバイナリダウンロードを開始します..."
           RETDEC_VER="v5.0"
-          wget -q "https://github.com/avast/retdec/releases/download/${RETDEC_VER}/RetDec-${RETDEC_VER}-Linux-Release.tar.xz" -O retdec.tar.xz
+          wget -q "https://github.com/avast/retdec/releases/download/v5.0/RetDec-v5.0-Linux-Release.tar.xz" -O retdec.tar.xz
 
           # 1段階目の解凍 (.tar.xz -> tarファイル抽出)
           tar -xJf retdec.tar.xz
