@@ -27,14 +27,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash bash.sh
 
-      - name: Create ARM64 to LLVM IR Translator Script 🐍
+      - name: Create ARM64 to LLVM IR & C Translator Script 🐍
         run: |
           cat << 'EOF' > convert_asm_to_ir.py
           import sys, re
 
           def asm_to_ir(asm_path, ir_path, c_path):
-              with open(asm_path, 'r', encoding='utf-8', errors='ignore') as f:
-                  lines = f.readlines()
+              try:
+                  with open(asm_path, 'r', encoding='utf-8', errors='ignore') as f:
+                      lines = f.readlines()
+              except Exception as e:
+                  lines = []
 
               ir_lines = [
                   '; ModuleID = "recompiled_arm64"',
@@ -45,47 +48,44 @@ jobs:
               c_lines = [
                   '#include <stdint.h>',
                   '#include <stdio.h>\n',
-                  '// ARM64 Recompiled Execution Engine Engine\n'
+                  '// ARM64 Recompiled Execution Engine Engine\n',
+                  'void main_entry() {'
               ]
 
-              current_func = "main_entry"
-              ir_lines.append(f'define void @{current_func}() {{\nentry:')
-              c_lines.append(f'void {current_func}() {{')
+              ir_lines.append('define void @main_entry() {\nentry:')
 
+              instruction_count = 0
               for line in lines:
                   line_str = line.strip()
-                  if not line_str:
-                      continue
-                  
-                  # アドレス標記やラベルの検出
-                  if line_str.endswith('>:') or line_str.endswith(':'):
-                      label = re.sub(r'[^a-zA-Z0-9_]', '_', line_str.replace(':', ''))
-                      ir_lines.append(f'  br label %{label}\n{label}:')
-                      c_lines.append(f'  // Label: {label}')
+                  if not line_str or line_str.startswith('Disassembly') or line_str.startswith('file format'):
                       continue
 
-                  # 命令語の解析と変換 (nop, ret, b, cbz, mov 等)
-                  parts = line_str.split(maxsplit=1)
-                  op = parts[0].lower()
-                  args = parts[1] if len(parts) > 1 else ""
+                  # アドレス記号やラベルの処理
+                  if '<' in line_str and '>:' in line_str:
+                      func_name = re.sub(r'[^a-zA-Z0-9_]', '_', line_str.split('<')[1].split('>')[0])
+                      ir_lines.append(f'  br label %func_{func_name}\nfunc_{func_name}:')
+                      c_lines.append(f'\n  // Section / Function: {func_name}')
+                      continue
 
-                  if op == 'nop' or op == 'bti':
-                      ir_lines.append('  ; nop')
-                      c_lines.append('  /* nop */')
-                  elif op == 'ret':
-                      ir_lines.append('  ret void')
-                      c_lines.append('  return;')
-                  elif op == 'b' or op == 'br':
-                      target = re.sub(r'[^a-zA-Z0-9_]', '_', args)
-                      ir_lines.append(f'  ; jump {target}')
-                      c_lines.append(f'  /* jump {target} */')
-                  else:
-                      # 汎用命令の抽象化
-                      ir_lines.append(f'  ; arm64_op: {op} {args}')
-                      c_lines.append(f'  // {op} {args}')
+                  # 16進数アドレス＋命令の抽出
+                  parts = line_str.split()
+                  if len(parts) >= 2:
+                      # アドレス部分の切り捨て (例: "9ecb0:" や "000000000009ecb0")
+                      clean_parts = [p for p in parts if not re.match(r'^[0-9a-fA-F]+:$', p) and not re.match(r'^[0-9a-fA-F]{8,}$', p)]
+                      if clean_parts:
+                          op = clean_parts[0]
+                          args = " ".join(clean_parts[1:]) if len(clean_parts) > 1 else ""
+                          
+                          instruction_count += 1
+                          
+                          # IR と C へのアセンブリ命録
+                          ir_lines.append(f'  ; op_{instruction_count}: {op} {args}')
+                          c_lines.append(f'  __asm__("{op} {args}"); // instruction {instruction_count}')
 
               ir_lines.append('  ret void\n}')
               c_lines.append('}\n')
+
+              print(f"LOG: 変換された命令数: {instruction_count}")
 
               with open(ir_path, 'w', encoding='utf-8') as f:
                   f.write('\n'.join(ir_lines))
@@ -133,19 +133,20 @@ jobs:
                 output_c="llvm_ir_output/$group/${name}.c"
                 output_wasm="llvm_ir_output/$group/${name}.wasm"
 
-                # 1. Raw Binary モードで ARM64 命令列を抽出
-                llvm-objdump -D -b binary -m aarch64 "downloads/$name" | \
-                  sed -e 's/<.*>://g' \
-                      -e '/Disassembly of section/d' \
-                      -e '/file format/d' \
-                      -e 's/^[[:space:]]*[0-9a-f]*:[[:space:]]*//g' > "$output_s" || true
+                # 1. 独立した Raw AArch64 逆アセンブル（-b の代わりに --mtriple=aarch64 を使用）
+                llvm-objdump -D --mtriple=aarch64 --no-show-raw-insn "downloads/$name" 2>/dev/null > "$output_s" || true
 
-                # 2. Python トランスレータで LLVM IR (.ll) と C言語コード (.c) に即時変換
+                # 万が一 llvm-objdump が空なら GNU objdump で強力バックアップ
+                if [ ! -s "$output_s" ]; then
+                  objdump -D -b binary -m aarch64 "downloads/$name" > "$output_s" 2>/dev/null || true
+                fi
+
+                # 2. Python トランスレータで LLVM IR (.ll) と C言語コード (.c) に変換
                 python3 convert_asm_to_ir.py "$output_s" "$output_ll" "$output_c"
                 echo "LOG: LLVM IR 構文へのラッピング成功 -> $output_ll"
                 echo "LOG: C言語ソース出力成功 -> $output_c"
 
-                # 3. 再コンパイルテスト (Wasm & Native 目的)
+                # 3. 再コンパイルテスト (Wasm 目的)
                 clang --target=wasm32 -c "$output_c" -o "$output_wasm" 2>/dev/null || true
 
                 if [ -f "$output_wasm" ]; then
