@@ -15,18 +15,31 @@ jobs:
       - name: Checkout Repository 🐙
         uses: actions/checkout@v4
 
-      - name: Install RetDec, LLVM and jq 🛠️
+      - name: Install LLVM, jq and dependencies 🛠️
         run: |
-          echo "LOG: RetDec、LLVM、jqのセットアップを開始します..."
+          echo "LOG: LLVM、jq、RetDec依存パッケージのセットアップを開始します..."
           sudo apt-get update
-          sudo apt-get install -y retdec llvm jq curl
-          echo "LOG: ツールのセットアップが完了しました！"
+          sudo apt-get install -y llvm jq curl wget python3 graphviz
+          echo "LOG: 基本ツールのセットアップが完了しました！"
+
+      - name: Install RetDec Binary 🦖
+        run: |
+          echo "LOG: RetDec のバイナリダウンロードを開始します..."
+          # RetDec 最新リリースバイナリの取得と配置
+          RETDEC_VER="v5.0"
+          wget -q "https://github.com/avast/retdec/releases/download/${RETDEC_VER}/RetDec-${RETDEC_VER}-ubuntu-64b.mbedtls.tar.gz" -O retdec.tar.gz
+          mkdir -p retdec_bin
+          tar -xzf retdec.tar.gz -C retdec_bin --strip-components=1
+          rm retdec.tar.gz
+
+          # PATHに追加してどこからでも呼び出せるようにする
+          echo "$(pwd)/retdec_bin/bin" >> $GITHUB_PATH
+          echo "LOG: RetDec のセットアップが完了しました！"
 
       - name: Run script
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash bash.sh
-
 
       - name: Download SO files and Convert to LLVM IR ⚙️
         run: |
