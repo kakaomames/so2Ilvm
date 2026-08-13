@@ -1,0 +1,80 @@
+name: Decompile SO to LLVM IR via JSON Config 🚀
+
+on:
+  push:
+    paths:
+      - 'so_targets.json'
+  workflow_dispatch:
+
+jobs:
+  download-and-convert:
+    name: Download SO from Release and Convert to LLVM IR 🔍
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository 🐙
+        uses: actions/checkout@v4
+
+      - name: Install RetDec, LLVM and jq 🛠️
+        run: |
+          echo "LOG: RetDec、LLVM、jqのセットアップを開始します..."
+          sudo apt-get update
+          sudo apt-get install -y retdec llvm jq curl
+          echo "LOG: ツールのセットアップが完了しました！"
+
+      - name: Download SO files and Convert to LLVM IR ⚙️
+        run: |
+          echo "LOG: so_targets.json の読み込みを開始します..."
+          mkdir -p downloads
+          mkdir -p llvm_ir_output
+
+          # JSONからグループ一覧を取得してループ
+          groups=$(jq -r '.groups | keys[]' so_targets.json)
+
+          for group in $groups; do
+            echo "--------------------------------------------------"
+            echo "LOG: グループ [$group] の処理を開始します..."
+            
+            # グループのディレクトリを作成
+            mkdir -p "llvm_ir_output/$group"
+
+            # グループ内のライブラリ数を取得
+            count=$(jq ".groups.$group | length" so_targets.json)
+
+            for i in $(seq 0 $(($count - 1))); do
+              name=$(jq -r ".groups.$group[$i].name" so_targets.json)
+              url=$(jq -r ".groups.$group[$i].url" so_targets.json)
+              arch=$(jq -r ".groups.$group[$i].arch" so_targets.json)
+
+              echo "LOG: [$group] $name ($arch) をダウンロード中: $url"
+              curl -sL -o "downloads/$name" "$url"
+
+              if [ -f "downloads/$name" ]; then
+                echo "LOG: downloads/$name の LLVM IR 化（RetDec）を開始します..."
+                output_bc="downloads/${name}.bc"
+                output_ll="llvm_ir_output/$group/${name}.ll"
+
+                # RetDecで解析し、LLVM Bitcode (.bc) を抽出
+                retdec-decompiler --stop-after=llvmir "downloads/$name" -o "$output_bc"
+
+                # LLVM Disassemblerでテキスト表記 (.ll) に変換
+                if [ -f "$output_bc" ]; then
+                  llvm-dis "$output_bc" -o "$output_ll"
+                  echo "LOG: LLVM IR 変換成功 -> $output_ll"
+                elif [ -f "downloads/${name}.ll" ]; then
+                  mv "downloads/${name}.ll" "$output_ll"
+                  echo "LOG: LLVM IR 変換成功 -> $output_ll"
+                else
+                  echo "LOG: エラー - $name の LLVM IR 化に失敗しました。"
+                fi
+              else
+                echo "LOG: エラー - $name のダウンロードに失敗しました。"
+              fi
+            done
+          done
+
+      - name: Upload LLVM IR Artifacts 📦
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-ir-grouped-artifacts
+          path: llvm_ir_output/
