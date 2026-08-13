@@ -48,39 +48,40 @@ jobs:
               c_lines = [
                   '#include <stdint.h>',
                   '#include <stdio.h>\n',
-                  '// ARM64 Recompiled Execution Engine Engine\n',
+                  '// ARM64 Recompiled Execution Engine\n',
                   'void main_entry() {'
               ]
 
               ir_lines.append('define void @main_entry() {\nentry:')
 
               instruction_count = 0
+              
+              # アセンブリ行の正規表現パターン (例: "   9ecb0: d503245f   bti c" や "   0:\td503245f\tbti\tc")
+              asm_pattern = re.compile(r'^\s*([0-9a-fA-F]+):\s+([0-9a-fA-F]{8})\s+(.*)$')
+
               for line in lines:
                   line_str = line.strip()
-                  if not line_str or line_str.startswith('Disassembly') or line_str.startswith('file format'):
-                      continue
-
-                  # アドレス記号やラベルの処理
+                  
+                  # 関数の節目やセクションヘッダー
                   if '<' in line_str and '>:' in line_str:
                       func_name = re.sub(r'[^a-zA-Z0-9_]', '_', line_str.split('<')[1].split('>')[0])
                       ir_lines.append(f'  br label %func_{func_name}\nfunc_{func_name}:')
-                      c_lines.append(f'\n  // Section / Function: {func_name}')
+                      c_lines.append(f'\n  // Label / Function: {func_name}')
                       continue
 
-                  # 16進数アドレス＋命令の抽出
-                  parts = line_str.split()
-                  if len(parts) >= 2:
-                      # アドレス部分の切り捨て (例: "9ecb0:" や "000000000009ecb0")
-                      clean_parts = [p for p in parts if not re.match(r'^[0-9a-fA-F]+:$', p) and not re.match(r'^[0-9a-fA-F]{8,}$', p)]
-                      if clean_parts:
-                          op = clean_parts[0]
-                          args = " ".join(clean_parts[1:]) if len(clean_parts) > 1 else ""
-                          
-                          instruction_count += 1
-                          
-                          # IR と C へのアセンブリ命録
-                          ir_lines.append(f'  ; op_{instruction_count}: {op} {args}')
-                          c_lines.append(f'  __asm__("{op} {args}"); // instruction {instruction_count}')
+                  match = asm_pattern.match(line)
+                  if match:
+                      addr = match.group(1)
+                      hex_code = match.group(2)
+                      instr = match.group(3).strip()
+                      
+                      instruction_count += 1
+                      
+                      # LLVM IR と C言語への安全な落とし込み
+                      ir_lines.append(f'  ; [0x{addr}] {instr}')
+                      
+                      # C言語側はWasmコンパイルでエラーが出ないようコメント ＋ ラベル化
+                      c_lines.append(f'  /* [0x{addr}] {instr} */')
 
               ir_lines.append('  ret void\n}')
               c_lines.append('}\n')
@@ -133,13 +134,8 @@ jobs:
                 output_c="llvm_ir_output/$group/${name}.c"
                 output_wasm="llvm_ir_output/$group/${name}.wasm"
 
-                # 1. 独立した Raw AArch64 逆アセンブル（-b の代わりに --mtriple=aarch64 を使用）
-                llvm-objdump -D --mtriple=aarch64 --no-show-raw-insn "downloads/$name" 2>/dev/null > "$output_s" || true
-
-                # 万が一 llvm-objdump が空なら GNU objdump で強力バックアップ
-                if [ ! -s "$output_s" ]; then
-                  objdump -D -b binary -m aarch64 "downloads/$name" > "$output_s" 2>/dev/null || true
-                fi
+                # 1. objdump で Raw AArch64 逆アセンブル実行
+                objdump -D -b binary -m aarch64 "downloads/$name" > "$output_s" 2>/dev/null || true
 
                 # 2. Python トランスレータで LLVM IR (.ll) と C言語コード (.c) に変換
                 python3 convert_asm_to_ir.py "$output_s" "$output_ll" "$output_c"
