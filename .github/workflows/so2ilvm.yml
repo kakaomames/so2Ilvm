@@ -26,18 +26,22 @@ jobs:
         run: |
           echo "LOG: RetDec のバイナリダウンロードを開始します..."
           RETDEC_VER="v5.0"
-          wget -q "https://github.com/avast/retdec/releases/download/v5.0/RetDec-v5.0-Linux-Release.tar.xz" -O retdec.tar.xz
+          wget -q "https://github.com/avast/retdec/releases/download/${RETDEC_VER}/RetDec-${RETDEC_VER}-Linux-Release.tar.xz" -O retdec.tar.xz
 
-          # 1段階目の解凍 (.tar.xz -> tarファイル抽出)
-          tar -xJf retdec.tar.xz
+          mkdir -p retdec_bin
+          # 1段階目の解凍 (.tar.xz を retdec_bin 内に解凍)
+          tar -xJf retdec.tar.xz -C retdec_bin
           rm retdec.tar.xz
 
-          # 2段階目の解凍 (内部のtarファイルを retdec_bin へ展開)
-          mkdir -p retdec_bin
-          tar -xf RetDec-${RETDEC_VER}-Linux-Release -C retdec_bin --strip-components=1
-          rm RetDec-${RETDEC_VER}-Linux-Release
+          # 2段階目の解凍 (retdec_bin 内にできた tar ファイルを探して全展開)
+          INTERNAL_TAR=$(find retdec_bin -type f -name "*RetDec*" | head -n 1)
+          if [ -n "$INTERNAL_TAR" ]; then
+            echo "LOG: 内部 tar ファイルを発見しました: $INTERNAL_TAR"
+            tar -xf "$INTERNAL_TAR" -C retdec_bin
+            rm "$INTERNAL_TAR"
+          fi
 
-          echo "LOG: 2重解凍が完了しました。RetDecバイナリを確認します..."
+          echo "LOG: 解凍処理が完了しました。RetDecバイナリを確認します..."
           find retdec_bin -name "retdec-decompiler*"
 
       - name: Run script
