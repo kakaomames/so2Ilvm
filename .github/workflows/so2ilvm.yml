@@ -27,13 +27,18 @@ jobs:
           echo "LOG: RetDec のバイナリダウンロードを開始します..."
           RETDEC_VER="v5.0"
           wget -q "https://github.com/avast/retdec/releases/download/${RETDEC_VER}/RetDec-${RETDEC_VER}-Linux-Release.tar.xz" -O retdec.tar.xz
-          mkdir -p retdec_bin
-          tar -xJf retdec.tar.xz -C retdec_bin --strip-components=1
+
+          # 1段階目の解凍 (.tar.xz -> tarファイル抽出)
+          tar -xJf retdec.tar.xz
           rm retdec.tar.xz
 
-          # 次の step 以降で PATH に通す設定
-          echo "$GITHUB_WORKSPACE/retdec_bin/bin" >> $GITHUB_PATH
-          echo "LOG: RetDec のセットアップが完了しました！"
+          # 2段階目の解凍 (内部のtarファイルを retdec_bin へ展開)
+          mkdir -p retdec_bin
+          tar -xf RetDec-${RETDEC_VER}-Linux-Release -C retdec_bin --strip-components=1
+          rm RetDec-${RETDEC_VER}-Linux-Release
+
+          echo "LOG: 2重解凍が完了しました。RetDecバイナリを確認します..."
+          find retdec_bin -name "retdec-decompiler*"
 
       - name: Run script
         env:
@@ -46,12 +51,16 @@ jobs:
           mkdir -p downloads
           mkdir -p llvm_ir_output
 
-          # RetDecのバイナリパスを直接特定
-          RETDEC_CMD="$GITHUB_WORKSPACE/retdec_bin/bin/retdec-decompiler.py"
-          if [ ! -f "$RETDEC_CMD" ]; then
-            RETDEC_CMD="$GITHUB_WORKSPACE/retdec_bin/bin/retdec-decompiler"
+          # 解凍された RetDec 実行ファイルのパスを検索
+          RETDEC_PATH=$(find $GITHUB_WORKSPACE/retdec_bin -name "retdec-decompiler" -o -name "retdec-decompiler.py" | head -n 1)
+          echo "LOG: 検出された RetDec パス: $RETDEC_PATH"
+
+          if [ -z "$RETDEC_PATH" ]; then
+            echo "LOG: エラー - RetDec の実行ファイルが見つかりません！"
+            exit 1
           fi
-          echo "LOG: 使用するRetDecコマンド: $RETDEC_CMD"
+
+          chmod +x "$RETDEC_PATH"
 
           # JSONからグループ一覧を取得してループ
           groups=$(jq -r '.groups | keys[]' so_targets.json)
@@ -79,8 +88,8 @@ jobs:
                 output_bc="downloads/${name}.bc"
                 output_ll="llvm_ir_output/$group/${name}.ll"
 
-                # 絶対パスでRetDecを実行してLLVM Bitcode (.bc) を抽出
-                python3 "$RETDEC_CMD" --stop-after=llvmir "downloads/$name" -o "$output_bc" || "$RETDEC_CMD" --stop-after=llvmir "downloads/$name" -o "$output_bc"
+                # RetDecを実行して LLVM Bitcode (.bc) を抽出
+                "$RETDEC_PATH" --stop-after=llvmir "downloads/$name" -o "$output_bc"
 
                 # LLVM Disassemblerでテキスト表記 (.ll) に変換
                 if [ -f "$output_bc" ]; then
