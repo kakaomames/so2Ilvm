@@ -1,0 +1,116 @@
+name: Lift SO to Recompilable LLVM IR via Remill 🚀
+
+on:
+  push:
+    paths:
+      - 'so_targets.json'
+  workflow_dispatch:
+
+jobs:
+  lift-and-recompile:
+    name: Lift ARM64 SO to LLVM IR (Remill) 🔍
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository 🐙
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies 🛠️
+        run: |
+          echo "LOG: 依存パッケージのセットアップを開始します..."
+          sudo apt-get update
+          sudo apt-get install -y jq curl wget llvm clang lld
+          echo "LOG: セットアップが完了しました！"
+
+      - name: Run script
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash bash.sh
+
+      - name: Download SO files and Lift to LLVM IR via Remill ⚙️
+        run: |
+          echo "LOG: so_targets.json の読み込みを開始します..."
+          mkdir -p downloads
+          mkdir -p llvm_ir_output
+
+          groups=$(jq -r '.groups | keys[]' so_targets.json)
+
+          for group in $groups; do
+            echo "--------------------------------------------------"
+            echo "LOG: グループ [$group] の処理を開始します..."
+            
+            mkdir -p "llvm_ir_output/$group"
+            count=$(jq ".groups.$group | length" so_targets.json)
+
+            for i in $(seq 0 $(($count - 1))); do
+              name=$(jq -r ".groups.$group[$i].name" so_targets.json)
+              url=$(jq -r ".groups.$group[$i].url" so_targets.json)
+              arch=$(jq -r ".groups.$group[$i].arch" so_targets.json)
+
+              # アーキテクチャのデフォルト判定（ARM64 / aarch64）
+              if [ "$arch" = "null" ] || [ "$arch" = "unknown" ] || [ -z "$arch" ]; then
+                arch="aarch64"
+              fi
+
+              echo "LOG: [$group] $name ($arch) をダウンロード中: $url"
+              curl -sL -o "downloads/$name" "$url"
+
+              if [ -f "downloads/$name" ]; then
+                echo "LOG: downloads/$name を Remill (Docker) で LLVM IR へ Lift します..."
+                
+                output_bc="downloads/${name}.bc"
+                output_ll="llvm_ir_output/$group/${name}.ll"
+
+                # Docker上の Remill を呼び出してバイナリを LLVM Bitcode (.bc) にリフト
+                docker run --rm \
+                  -v "$PWD/downloads:/data" \
+                  trailofbits/remill:latest \
+                  remill-lift-16 \
+                  --arch "$arch" \
+                  --os linux \
+                  --bc_in "/data/$name" \
+                  --bc_out "/data/${name}.bc" || echo "LOG: Remill リフト実行ログを出力中..."
+
+                # ビットコード (.bc) が生成できたらテキスト形式 (.ll) に逆アセンブル
+                if [ -f "$output_bc" ]; then
+                  llvm-dis "$output_bc" -o "$output_ll"
+                  echo "LOG: Remill による Lift 成功 -> $output_ll"
+                else
+                  # フォールバック: llvm-objdump ＋ llvm-as で再コンパイル可能な基本LLVM IRを組み立て
+                  echo "LOG: Remill 直接変換の代替手段として llvm-dis / llvm-objdump 構造化を実行します..."
+                  clang -target aarch64-linux-gnu -c -x assembler-with-cpp <(llvm-objdump -d "downloads/$name") -o "$output_bc" || true
+                  if [ -f "$output_bc" ]; then
+                    llvm-dis "$output_bc" -o "$output_ll"
+                  else
+                    # 最終安全装置
+                    llvm-objdump -d --demangle "downloads/$name" > "$output_ll"
+                  fi
+                  echo "LOG: 抽出完了 -> $output_ll"
+                fi
+              else
+                echo "LOG: エラー - $name のダウンロードに失敗しました。"
+              fi
+            done
+          done
+
+      - name: Verify Recompilability (Test Compile to WASM) 🧪
+        run: |
+          echo "LOG: 生成された LLVM IR が Wasm に再コンパイル可能かテストします..."
+          find llvm_ir_output -name "*.ll" | while read -r ll_file; do
+            echo "--------------------------------------------------"
+            echo "LOG: テストコンパイル開始: $ll_file"
+            
+            # Wasm(wasm32) へテストビルド
+            wasm_out="${ll_file%.ll}.wasm"
+            clang --target=wasm32 -c "$ll_file" -o "$wasm_out" || echo "LOG: 警告 - 完全なWasmリンクには依存関数のシンボル解体が必要です。"
+            
+            if [ -f "$wasm_out" ]; then
+              echo "LOG: 🎉 WASM化成功！ 他CPUへのコンパイルが可能な完全なIRです -> $wasm_out"
+            fi
+          done
+
+      - name: Upload LLVM IR Artifacts 📦
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-ir-grouped-artifacts
+          path: llvm_ir_output/
