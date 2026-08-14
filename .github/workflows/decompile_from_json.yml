@@ -69,7 +69,19 @@ jobs:
               fi
             done
           done
-
+      
+      - name: 自作(あなたが使うときは変えるか消してね？
+        run: |
+          cp -rf build.sh llvm_ir_output/pq/build.sh
+          cd "llvm_ir_output/pq"
+          bash build.sh
+          cd ../../
+  
+          cp -rf build.sh llvm_ir_output/minecraft/build.sh
+          cd "llvm_ir_output/minecraft"
+          bash build.sh
+          cd ../../
+          
       - name: Upload LLVM IR Artifacts 📦
         uses: actions/upload-artifact@v4
         with:
