@@ -63,6 +63,8 @@ jobs:
                 # バイナリから直接 LLVM IR 中間表現を生成！ (正規表現・objdump依存ゼロ)
                 python3 binary_to_ir.py "downloads/$name" "$output_ll"
                 echo "LOG: LLVM IR 中間表現の生成成功 -> $output_ll"
+                
+                bash ll2wasm.sh "$output_ll"
 
               else
                 echo "LOG: エラー - $name のダウンロードに失敗しました。"
