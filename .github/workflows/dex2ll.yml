@@ -1,28 +1,39 @@
-name: smali2ssa
+name: dex2ll
 
 on:
-  workflow_dispatch:
   push:
     paths:
-      - "smali/**"
+      - "*.apk"
+  workflow_dispatch:
 
 jobs:
-  smali2ssa:
+  decompile:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
+      - name: Install baksmali
         run: |
-          pip install -r requirements.txt || true
+          wget https://github.com/JesusFreke/smali/releases/download/v2.5.2/baksmali-2.5.2.jar -O baksmali.jar
 
+      - name: Extract classes.dex from APK
+        run: |
+          mkdir dex
+          unzip *.apk classes.dex -d dex
+
+      - name: Convert DEX → Smali
+        run: |
+          mkdir smali
+          java -jar baksmali.jar d dex/classes.dex -o smali
+
+      - name: Upload smali output
+        uses: actions/upload-artifact@v4
+        with:
+          name: smali
+          path: smali
+          
       - name: Run smali2ssa
         run: |
           mkdir -p ssa
