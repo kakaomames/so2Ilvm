@@ -8,7 +8,7 @@ log_change() {
   echo "[LOG] ${key} changed to: ${val}"
 }
 
-TAGS_FILE="allTag.json"
+TAGS_FILE="allTag2.json"
 log_change "TAGS_FILE" "${TAGS_FILE}"
 
 REPO_OWNER_REPO="${GITHUB_REPOSITORY:-kakaomames/so2Ilvm}"
