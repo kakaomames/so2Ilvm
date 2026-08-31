@@ -1,0 +1,35 @@
+name: dex2smali
+
+on:
+  push:
+    paths:
+      - "*.apk"
+  workflow_dispatch:
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install baksmali
+        run: |
+          wget https://github.com/JesusFreke/smali/releases/download/v2.5.2/baksmali-2.5.2.jar -O baksmali.jar
+
+      - name: Extract classes.dex from APK
+        run: |
+          mkdir dex
+          unzip *.apk classes.dex -d dex
+
+      - name: Convert DEX → Smali
+        run: |
+          mkdir smali
+          java -jar baksmali.jar d dex/classes.dex -o smali
+
+      - name: Upload smali output
+        uses: actions/upload-artifact@v4
+        with:
+          name: smali
+          path: smali
