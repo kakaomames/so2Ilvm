@@ -21,7 +21,7 @@ jobs:
       - name: Extract classes.dex from APK
         run: |
           mkdir dex
-          unzip *.apk classes.dex -d dex
+          unzip *.apk classes*.dex -d dex
 
       - name: Convert DEX → Smali
         run: |
