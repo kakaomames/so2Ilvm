@@ -51,7 +51,7 @@ for TAG_NAME in ${TAG_LIST}; do
     URL=$(echo "${asset}" | jq -r '.url')
     
     # .so ファイル以外はスキップ
-    if [[ "${NAME}" != *.so ]]; then
+    if [[ "${NAME}" != *.exe ]]; then
       continue
     fi
     
