@@ -25,7 +25,7 @@ jobs:
       - name: Run script
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash bash.sh || true
+        run: bash bash2.sh || true
 
       - name: Create Direct Binary to LLVM IR Lifter 🐍
         run: |
