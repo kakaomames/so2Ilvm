@@ -1,6 +1,6 @@
 {
   "groups": {
-    "core_modules": [
+    "metaseko": [
       {
         "name": "Metaseq4.exe",
         "url": "https://github.com/kakaomames/so2Ilvm/releases/download/metaseko/Metaseq491_Win32_Installer.exe",
