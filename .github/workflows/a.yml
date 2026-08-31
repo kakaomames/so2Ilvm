@@ -64,7 +64,7 @@ jobs:
                 python3 binary_to_ir.py "downloads/$name" "$output_ll"
                 echo "LOG: LLVM IR 中間表現の生成成功 -> $output_ll"
                 
-                bash ll2wasm.sh "$output_ll" || true 
+                // bash ll2wasm.sh "$output_ll" || true 
 
               else
                 echo "LOG: エラー - $name のダウンロードに失敗しました。"
@@ -78,13 +78,12 @@ jobs:
           mkdir -p llvm_ir_output/minecraft/
           cp -rf build.sh llvm_ir_output/pq/build.sh
           cd "llvm_ir_output/pq"
-          bash build.sh
+          // bash build.sh
           
           cd ../../
-  
           cp -rf build.sh llvm_ir_output/minecraft/build.sh
           cd "llvm_ir_output/minecraft"
-          bash build.sh
+          // bash build.sh
           
           cd ../../
           
