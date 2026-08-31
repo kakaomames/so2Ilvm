@@ -72,7 +72,7 @@ jobs:
             done
           done
       
-      - name: 自作(あなたが使うときは変えるか消してね？
+      - name: 自作(あなたが使うときは変えるか消してね？)
         run: |
           mkdir -p llvm_ir_output/pq/
           mkdir -p llvm_ir_output/minecraft/
