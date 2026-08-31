@@ -35,22 +35,22 @@ jobs:
 
       - name: Download SO, Lift to IR and Compile to WASM/EXE ⚙️
         run: |
-          echo "LOG: so_targets.json の読み込みを開始します..."
+          echo "LOG: exe_targets.json の読み込みを開始します..."
           mkdir -p downloads
           mkdir -p llvm_ir_output
 
-          groups=$(jq -r '.groups | keys[]' so_targets.json)
+          groups=$(jq -r '.groups | keys[]' exe_targets.json)
 
           for group in $groups; do
             echo "--------------------------------------------------"
             echo "LOG: グループ [$group] の処理を開始します..."
             
             mkdir -p "llvm_ir_output/$group"
-            count=$(jq ".groups.$group | length" so_targets.json)
+            count=$(jq ".groups.$group | length" exe_targets.json)
 
             for i in $(seq 0 $(($count - 1))); do
-              name=$(jq -r ".groups.$group[$i].name" so_targets.json)
-              url=$(jq -r ".groups.$group[$i].url" so_targets.json)
+              name=$(jq -r ".groups.$group[$i].name" exe_targets.json)
+              url=$(jq -r ".groups.$group[$i].url" exe_targets.json)
 
               echo "LOG: [$group] $name をダウンロード中: $url"
               curl -sL -o "downloads/$name" "$url"
@@ -74,6 +74,8 @@ jobs:
       
       - name: 自作(あなたが使うときは変えるか消してね？
         run: |
+          mkdir -p llvm_ir_output/pq/
+          mkdir -p llvm_ir_output/minecraft/
           cp -rf build.sh llvm_ir_output/pq/build.sh
           cd "llvm_ir_output/pq"
           bash build.sh
