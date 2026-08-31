@@ -1,0 +1,35 @@
+name: smali2ssa
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "smali/**"
+
+jobs:
+  smali2ssa:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt || true
+
+      - name: Run smali2ssa
+        run: |
+          mkdir -p ssa
+          python tools/smali2ssa.py smali/ ssa/
+
+      - name: Upload SSA IR
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssa-ir
+          path: ssa
