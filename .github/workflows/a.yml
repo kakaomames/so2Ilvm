@@ -1,0 +1,93 @@
+name: Metaseko 🚀
+
+on:
+  push:
+    paths:
+      - 'exe_targets.json'
+  workflow_dispatch:
+
+jobs:
+  lift-and-recompile:
+    name: Convert X32 exe to Recompilable IR & Wasm 🔍
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository 🐙
+        uses: actions/checkout@v4
+
+      - name: Install LLVM & Clang 18 Toolchain 🛠️
+        run: |
+          echo "LOG: LLVM & Python ツールチェーンのセットアップを開始します..."
+          sudo apt-get update
+          sudo apt-get install -y jq curl wget llvm clang lld binutils python3
+          echo "LOG: セットアップが完了しました！"
+
+      - name: Run script
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash bash.sh || true
+
+      - name: Create Direct Binary to LLVM IR Lifter 🐍
+        run: |
+          echo "pyの設置"
+
+          echo "LOG: バイナリ中間表現コンバーター (binary_to_ir.py) 作成完了！"
+
+      - name: Download SO, Lift to IR and Compile to WASM/EXE ⚙️
+        run: |
+          echo "LOG: so_targets.json の読み込みを開始します..."
+          mkdir -p downloads
+          mkdir -p llvm_ir_output
+
+          groups=$(jq -r '.groups | keys[]' so_targets.json)
+
+          for group in $groups; do
+            echo "--------------------------------------------------"
+            echo "LOG: グループ [$group] の処理を開始します..."
+            
+            mkdir -p "llvm_ir_output/$group"
+            count=$(jq ".groups.$group | length" so_targets.json)
+
+            for i in $(seq 0 $(($count - 1))); do
+              name=$(jq -r ".groups.$group[$i].name" so_targets.json)
+              url=$(jq -r ".groups.$group[$i].url" so_targets.json)
+
+              echo "LOG: [$group] $name をダウンロード中: $url"
+              curl -sL -o "downloads/$name" "$url"
+
+              if [ -f "downloads/$name" ]; then
+                echo "LOG: downloads/$name の中間表現 (.ll) 抽出パイプラインを開始します..."
+                
+                output_ll="llvm_ir_output/$group/${name}.ll"
+
+                # バイナリから直接 LLVM IR 中間表現を生成！ (正規表現・objdump依存ゼロ)
+                python3 binary_to_ir.py "downloads/$name" "$output_ll"
+                echo "LOG: LLVM IR 中間表現の生成成功 -> $output_ll"
+                
+                bash ll2wasm.sh "$output_ll" || true 
+
+              else
+                echo "LOG: エラー - $name のダウンロードに失敗しました。"
+              fi
+            done
+          done
+      
+      - name: 自作(あなたが使うときは変えるか消してね？
+        run: |
+          cp -rf build.sh llvm_ir_output/pq/build.sh
+          cd "llvm_ir_output/pq"
+          bash build.sh
+          
+          cd ../../
+  
+          cp -rf build.sh llvm_ir_output/minecraft/build.sh
+          cd "llvm_ir_output/minecraft"
+          bash build.sh
+          
+          cd ../../
+          
+      - name: Upload LLVM IR Artifacts 📦
+        uses: actions/upload-artifact@v4
+        with:
+          name: recompiled-ir-artifacts
+          path: llvm_ir_output/
