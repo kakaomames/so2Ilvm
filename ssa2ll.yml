@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+ssa2ll.py
+SSA IR → LLVM IR 変換器（大規模実装向け骨格）
+"""
+
+import sys
+from pathlib import Path
+from llvmlite import ir
+
+# -----------------------------
+# SSA IR Loader
+# -----------------------------
+
+class SSAInstruction:
+    def __init__(self, opcode, operands, dst=None):
+        self.opcode = opcode
+        self.operands = operands
+        self.dst = dst  # SSA version name
+
+class SSABlock:
+    def __init__(self, bid):
+        self.id = bid
+        self.phi = {}  # reg -> [versions]
+        self.instructions = []
+
+class SSAMethod:
+    def __init__(self, name):
+        self.name = name
+        self.blocks = []
+
+def load_ssa_file(path: Path) -> SSAMethod:
+    method = None
+    current_block = None
+
+    with path.open() as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("; METHOD"):
+                name = line.split(" ", 2)[2]
+                method = SSAMethod(name)
+                continue
+
+            if line.startswith("block"):
+                bid = int(line.split()[1].replace(":", ""))
+                current_block = SSABlock(bid)
+                method.blocks.append(current_block)
+                continue
+
+            if "phi" in line:
+                # reg_phi = phi(v1_1, v1_2)
+                left, right = line.split("=", 1)
+                reg = left.strip().replace("_phi", "")
+                versions = right.strip()[4:-1].split(",")
+                versions = [v.strip() for v in versions]
+                current_block.phi[reg] = versions
+                continue
+
+            if line:
+                # opcode operands
+                parts = line.split()
+                opcode = parts[0]
+                operands = parts[1:]
+                dst = None
+                if "=" in line:
+                    dst = parts[0]
+                    opcode = parts[2]
+                    operands = parts[3:]
+                current_block.instructions.append(
+                    SSAInstruction(opcode, operands, dst)
+                )
+
+    return method
+
+# -----------------------------
+# LLVM IR Generator
+# -----------------------------
+
+class LLVMGenerator:
+    def __init__(self):
+        self.module = ir.Module(name="ssa_module")
+        self.i32 = ir.IntType(32)
+        self.ptr = ir.IntType(64)
+
+    def generate_method(self, method: SSAMethod):
+        func_type = ir.FunctionType(self.i32, [])
+        func = ir.Function(self.module, func_type, name=method.name)
+
+        llvm_blocks = []
+        for block in method.blocks:
+            llvm_blocks.append(func.append_basic_block(f"block_{block.id}"))
+
+        builders = [ir.IRBuilder(bb) for bb in llvm_blocks]
+
+        # φ ノード生成
+        phi_nodes = {}
+        for block, builder in zip(method.blocks, builders):
+            for reg, versions in block.phi.items():
+                phi = builder.phi(self.i32, name=f"{reg}_phi")
+                phi_nodes[(block.id, reg)] = phi
+
+        # 命令生成
+        value_map = {}
+
+        for block, builder in zip(method.blocks, builders):
+            for ins in block.instructions:
+                op = ins.opcode
+
+                # add-int
+                if op.startswith("add"):
+                    lhs = value_map.get(ins.operands[1], self.i32(0))
+                    rhs = value_map.get(ins.operands[2], self.i32(0))
+                    val = builder.add(lhs, rhs, name=ins.dst or "tmp")
+                    if ins.dst:
+                        value_map[ins.dst] = val
+
+                # const
+                elif op.startswith("const"):
+                    dst = ins.operands[0]
+                    imm = int(ins.operands[1], 0)
+                    val = self.i32(imm)
+                    value_map[dst] = val
+
+                # return
+                elif op.startswith("return"):
+                    reg = ins.operands[0]
+                    val = value_map.get(reg, self.i32(0))
+                    builder.ret(val)
+
+                # TODO: invoke, iget, iput, new-instance, etc.
+
+        return func
+
+# -----------------------------
+# Main
+# -----------------------------
+
+def main():
+    if len(sys.argv) != 3:
+        print("Usage: ssa2ll.py <ssa_dir> <out_dir>")
+        sys.exit(1)
+
+    ssa_dir = Path(sys.argv[1])
+    out_dir = Path(sys.argv[2])
+    out_dir.mkdir(exist_ok=True)
+
+    gen = LLVMGenerator()
+
+    for ssa_file in ssa_dir.glob("*.ssa"):
+        method = load_ssa_file(ssa_file)
+        gen.generate_method(method)
+
+    out_path = out_dir / "output.ll"
+    with out_path.open("w") as f:
+        f.write(str(gen.module))
+
+if __name__ == "__main__":
+    main()
