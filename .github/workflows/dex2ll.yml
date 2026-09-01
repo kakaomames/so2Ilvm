@@ -23,7 +23,7 @@ jobs:
 
       - name: Install baksmali
         run: |
-          curl -L "https://github.com/kakaomames/so2Ilvm/releases/download/cat/cell.apks" -o cell.apks
+          curl -L "https://github.com/kakaomames/apk2web/releases/download/apks/cell.apks" -o cell.apks
           curl -L "https://github.com/kakaomames/so2Ilvm/releases/download/cell/APKEditor.jar" -o APKEditor.jar
           java -jar APKEditor.jar m -i cell.apks -o cell.apk
           rm -rfv cell.apks
