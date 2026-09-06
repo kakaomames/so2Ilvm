@@ -152,19 +152,10 @@ class BytecodeToLLVMTranslator:
         self.class_name = class_parser.class_name
         self.methods = class_parser.methods
 
-    def get_local_name(self, idx):
-        # LLVMパーサーがレジスタ番号と勘違いしないよう、数字を排したアルファベット名にする
-        name = ""
-        idx += 1
-        while idx > 0:
-            idx, remainder = divmod(idx - 1, 26)
-            name = chr(97 + remainder) + name
-        return f"%l_{name}"
-
-    def translate_bytecode(self, code_bytes):
+    def translate_bytecode(self, code_bytes, start_reg_counter, local_regs):
         ir_lines = []
         stack = []
-        reg_counter = 1
+        reg_counter = start_reg_counter
 
         def new_reg():
             nonlocal reg_counter
@@ -192,26 +183,26 @@ class BytecodeToLLVMTranslator:
                 var_idx = code_bytes[i]
                 i += 1
                 r = new_reg()
-                loc_name = self.get_local_name(var_idx)
-                ir_lines.append(f"  {r} = load i32, ptr {loc_name}")
+                loc_reg = local_regs[var_idx] if var_idx < len(local_regs) else local_regs[0]
+                ir_lines.append(f"  {r} = load i32, ptr {loc_reg}")
                 stack.append(r)
             elif 0x1a <= opcode <= 0x1d:
                 var_idx = opcode - 0x1a
                 r = new_reg()
-                loc_name = self.get_local_name(var_idx)
-                ir_lines.append(f"  {r} = load i32, ptr {loc_name}")
+                loc_reg = local_regs[var_idx] if var_idx < len(local_regs) else local_regs[0]
+                ir_lines.append(f"  {r} = load i32, ptr {loc_reg}")
                 stack.append(r)
             elif opcode == 0x36:
                 var_idx = code_bytes[i]
                 i += 1
                 if stack:
-                    loc_name = self.get_local_name(var_idx)
-                    ir_lines.append(f"  store i32 {stack.pop()}, ptr {loc_name}")
+                    loc_reg = local_regs[var_idx] if var_idx < len(local_regs) else local_regs[0]
+                    ir_lines.append(f"  store i32 {stack.pop()}, ptr {loc_reg}")
             elif 0x3b <= opcode <= 0x3e:
                 var_idx = opcode - 0x3b
                 if stack:
-                    loc_name = self.get_local_name(var_idx)
-                    ir_lines.append(f"  store i32 {stack.pop()}, ptr {loc_name}")
+                    loc_reg = local_regs[var_idx] if var_idx < len(local_regs) else local_regs[0]
+                    ir_lines.append(f"  store i32 {stack.pop()}, ptr {loc_reg}")
             elif opcode == 0x60:
                 right = stack.pop() if stack else 0
                 left = stack.pop() if stack else 0
@@ -267,12 +258,17 @@ class BytecodeToLLVMTranslator:
 
             llvm_ir.append(f"define {ret_type} {func_name}() {{")
             
+            # LLVMのSSA連番ルールに従い、allocaを%1から順番に割り振る
+            reg_counter = 1
             num_locals = max(code["max_locals"], 32)
+            local_regs = []
             for idx in range(num_locals):
-                loc_name = self.get_local_name(idx)
-                llvm_ir.append(f"  {loc_name} = alloca i32, align 4")
+                reg_name = f"%{reg_counter}"
+                reg_counter += 1
+                local_regs.append(reg_name)
+                llvm_ir.append(f"  {reg_name} = alloca i32, align 4")
 
-            translated_lines = self.translate_bytecode(code["code"])
+            translated_lines = self.translate_bytecode(code["code"], reg_counter, local_regs)
             llvm_ir.extend(translated_lines)
 
             if not any("ret" in line for line in translated_lines):
