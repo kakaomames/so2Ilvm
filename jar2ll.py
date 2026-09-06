@@ -3,27 +3,16 @@ import sys
 import struct
 import zipfile
 import glob
-
-# Javaクラスファイルの定数プールタグ
-CONSTANT_Utf8 = 1
-CONSTANT_Integer = 3
-CONSTANT_Float = 4
-CONSTANT_Long = 5
-CONSTANT_Double = 6
-CONSTANT_Class = 7
-CONSTANT_String = 8
-CONSTANT_Fieldref = 9
-CONSTANT_Methodref = 10
-CONSTANT_InterfaceMethodref = 11
-CONSTANT_NameAndType = 12
+import json
 
 class ClassParser:
-    def __init__(self, data):
+    def __init__(self, data, mapping):
         self.data = data
         self.offset = 0
         self.constant_pool = {}
         self.methods = []
         self.class_name = ""
+        self.mapping = mapping["constant_pool_tags"]
 
     def read_u1(self):
         val = self.data[self.offset]
@@ -41,7 +30,6 @@ class ClassParser:
         return val
 
     def parse(self):
-        # マジックナンバー確認
         magic = self.read_u4()
         if magic != 0xCAFEBABE:
             raise ValueError("無効なマジックナンバーです。Javaクラスファイルではありません。")
@@ -49,65 +37,69 @@ class ClassParser:
         self.read_u2()  # minor_version
         self.read_u2()  # major_version
 
-        # 定数プールのパース
         cp_count = self.read_u2()
         i = 1
         while i < cp_count:
-            tag = self.read_u1()
-            if tag == CONSTANT_Utf8:
+            tag_num = self.read_u1()
+            tag_name = self.mapping.get(str(tag_num))
+
+            if not tag_name:
+                raise ValueError(f"未対応の定数プールタグ番号: {tag_num} (インデックス: {i})")
+
+            if tag_name == "CONSTANT_Utf8":
                 length = self.read_u2()
                 bytes_val = self.data[self.offset:self.offset+length]
                 self.offset += length
                 self.constant_pool[i] = bytes_val.decode('utf-8', errors='ignore')
-            elif tag == CONSTANT_Integer:
+            elif tag_name == "CONSTANT_Integer":
                 val = self.read_u4()
                 self.constant_pool[i] = val
-                # LongとDoubleはコンサルプールを2つ消費する
-            elif tag in (CONSTANT_Float,):
+            elif tag_name == "CONSTANT_Float":
                 val = self.read_u4()
                 self.constant_pool[i] = val
-            elif tag in (CONSTANT_Long, CONSTANT_Double):
+            elif tag_name in ("CONSTANT_Long", "CONSTANT_Double"):
                 val = self.read_u4() + (self.read_u4() << 32)
                 self.constant_pool[i] = val
                 i += 1
                 self.constant_pool[i] = None
-            elif tag in (CONSTANT_Class, CONSTANT_String):
+            elif tag_name in ("CONSTANT_Class", "CONSTANT_String"):
                 val = self.read_u2()
                 self.constant_pool[i] = val
-            elif tag in (CONSTANT_Fieldref, CONSTANT_Methodref, CONSTANT_InterfaceMethodref, CONSTANT_NameAndType):
+            elif tag_name in ("CONSTANT_Fieldref", "CONSTANT_Methodref", "CONSTANT_InterfaceMethodref", "CONSTANT_NameAndType", "CONSTANT_InvokeDynamic"):
                 val1 = self.read_u2()
                 val2 = self.read_u2()
                 self.constant_pool[i] = (val1, val2)
-            else:
-                raise ValueError(f"未対応の定数プールタグ: {tag} (インデックス: {i})")
+            elif tag_name == "CONSTANT_MethodHandle":
+                self.read_u1()
+                self.read_u2()
+                self.constant_pool[i] = None
+            elif tag_name == "CONSTANT_MethodType":
+                self.read_u2()
+                self.constant_pool[i] = None
             i += 1
 
         self.read_u2()  # access_flags
         this_class_idx = self.read_u2()
         super_class_idx = self.read_u2()
 
-        # クラス名解決
         utf8_idx = self.constant_pool[this_class_idx]
         self.class_name = self.constant_pool[utf8_idx]
 
-        # インターフェース
         interfaces_count = self.read_u2()
         for _ in range(interfaces_count):
             self.read_u2()
 
-        # フィールド
         fields_count = self.read_u2()
         for _ in range(fields_count):
-            self.read_u2()  # access_flags
-            self.read_u2()  # name_index
-            self.read_u2()  # descriptor_index
+            self.read_u2()
+            self.read_u2()
+            self.read_u2()
             attr_count = self.read_u2()
             for _ in range(attr_count):
                 self.read_u2()
                 attr_len = self.read_u4()
                 self.offset += attr_len
 
-        # メソッド
         methods_count = self.read_u2()
         for _ in range(methods_count):
             access_flags = self.read_u2()
@@ -131,11 +123,9 @@ class ClassParser:
                     code_bytes = self.data[self.offset:self.offset+code_length]
                     self.offset += code_length
                     
-                    # 例外テーブルスキップ
                     exception_table_length = self.read_u2()
                     self.offset += exception_table_length * 8
                     
-                    # ネスト属性スキップ
                     sub_attr_count = self.read_u2()
                     for _ in range(sub_attr_count):
                         self.read_u2()
@@ -163,10 +153,8 @@ class BytecodeToLLVMTranslator:
         self.methods = class_parser.methods
 
     def translate_bytecode(self, code_bytes):
-        """JavaバイトコードをパースしてLLVM IRの基本ブロック命令列に変換する"""
         ir_lines = []
         stack = []
-        locals_map = {}
         reg_counter = 1
 
         def new_reg():
@@ -180,75 +168,58 @@ class BytecodeToLLVMTranslator:
             opcode = code_bytes[i]
             i += 1
 
-            # 0x12: ldc (定数プールから定数をロード)
             if opcode == 0x12:
                 index = code_bytes[i]
                 i += 1
-                val = self.cp[index]
-                stack.append(val)
-
-            # 0x03 - 0x08: iconst_0 ~ iconst_5
+                val = self.cp.get(index, 0)
+                if isinstance(val, int):
+                    stack.append(val)
+                else:
+                    stack.append(0)
             elif 0x03 <= opcode <= 0x08:
                 val = opcode - 0x03
                 stack.append(val)
-
-            # 0x10: bipush (1バイトの整数をスタックへ)
             elif opcode == 0x10:
                 val = struct.unpack_from('b', code_bytes, i)[0]
                 i += 1
                 stack.append(val)
-
-            # 0x15: iload (ローカル変数ロード)
             elif opcode == 0x15:
                 var_idx = code_bytes[i]
                 i += 1
                 r = new_reg()
-                ir_lines.load(f"  {r} = load i32, ptr %local_{var_idx}") # 簡易概念的レジスタ
+                ir_lines.append(f"  {r} = load i32, ptr %local_{var_idx}")
                 stack.append(r)
-
-            # 0x1a - 0x1d: iload_0 ~ iload_3
             elif 0x1a <= opcode <= 0x1d:
                 var_idx = opcode - 0x1a
                 r = new_reg()
-                # 簡易表現としてレジスタ参照を代入
                 ir_lines.append(f"  {r} = load i32, ptr %local_{var_idx}")
                 stack.append(r)
-
-            # 0x36: istore (ローカル変数ストア)
             elif opcode == 0x36:
                 var_idx = code_bytes[i]
                 i += 1
-                val = stack.pop()
-                ir_lines.append(f"  store i32 {val}, ptr %local_{var_idx}")
-
-            # 0x3b - 0x3e: istore_0 ~ istore_3
+                if stack:
+                    val = stack.pop()
+                    ir_lines.append(f"  store i32 {val}, ptr %local_{var_idx}")
             elif 0x3b <= opcode <= 0x3e:
                 var_idx = opcode - 0x3b
-                val = stack.pop()
-                ir_lines.append(f"  store i32 {val}, ptr %local_{var_idx}")
-
-            # 0x60: iadd (加算)
+                if stack:
+                    val = stack.pop()
+                    ir_lines.append(f"  store i32 {val}, ptr %local_{var_idx}")
             elif opcode == 0x60:
-                right = stack.pop()
-                left = stack.pop()
+                right = stack.pop() if stack else 0
+                left = stack.pop() if stack else 0
                 r = new_reg()
                 ir_lines.append(f"  {r} = add i32 {left}, {right}")
                 stack.append(r)
-
-            # 0x64: isub (減算)
             elif opcode == 0x64:
-                right = stack.pop()
-                left = stack.pop()
+                right = stack.pop() if stack else 0
+                left = stack.pop() if stack else 0
                 r = new_reg()
                 ir_lines.append(f"  {r} = sub i32 {left}, {right}")
                 stack.append(r)
-
-            # 0xac: ireturn (int値を返す)
             elif opcode == 0xac:
-                val = stack.pop()
+                val = stack.pop() if stack else 0
                 ir_lines.append(f"  ret i32 {val}")
-
-            # 0xb1: return (voidリターン)
             elif opcode == 0xb1:
                 ir_lines.append("  ret void")
 
@@ -256,7 +227,7 @@ class BytecodeToLLVMTranslator:
 
     def generate_ll(self):
         llvm_ir = [
-            '; --- Binary-level Generated LLVM IR ---',
+            '; --- JSON-driven Binary Generated LLVM IR ---',
             'target datalayout = "e-m:e-p:32:32-i64:64-n32:64-S128"',
             'target triple = "wasm32-unknown-unknown"',
             ''
@@ -269,27 +240,17 @@ class BytecodeToLLVMTranslator:
             if code is None:
                 continue
 
-            # 関数シグネチャ生成
             ret_type = "i32" if "I" in method["descriptor"] else "void"
-            
-            # main関数の特別扱い
-            func_name = "main" if m_name == "main" else f"@{self.class_name}_{m_name}"
-            if func_name != "main":
-                func_name = f"@{m_name}"
-            else:
-                func_name = "@main"
+            func_name = "@main" if m_name == "main" else f"@{m_name}"
 
             llvm_ir.append(f"define {ret_type} {func_name}() {{")
             
-            # ローカル変数の初期領域確保 (max_locals分)
             for idx in range(code["max_locals"]):
                 llvm_ir.append(f"  %local_{idx} = alloca i32, align 4")
 
-            # バイトコードの翻訳命令を展開
             translated_lines = self.translate_bytecode(code["code"])
             llvm_ir.extend(translated_lines)
 
-            # 返り値のフォールバック
             if not any("ret" in line for line in translated_lines):
                 if ret_type == "i32":
                     llvm_ir.append("  ret i32 0")
@@ -300,9 +261,12 @@ class BytecodeToLLVMTranslator:
 
         return "\n".join(llvm_ir)
 
-def convert_jar_to_ll(jar_path, output_ll_path):
-    print(f"[jar2ll] バイナリレベル解析開始: {jar_path}")
+def convert_jar_to_ll(jar_path, output_ll_path, mapping_path):
+    print(f"[jar2ll] JSON設定を用いたバイナリ解析開始: {jar_path}")
     
+    with open(mapping_path, 'r', encoding='utf-8') as f:
+        mapping = json.load(f)
+
     extract_dir = "extracted_classes"
     os.makedirs(extract_dir, exist_ok=True)
     
@@ -317,23 +281,25 @@ def convert_jar_to_ll(jar_path, output_ll_path):
         with open(cf, "rb") as f:
             binary_data = f.read()
         
-        parser = ClassParser(binary_data)
-        parser.parse()
-        
-        translator = BytecodeToLLVMTranslator(parser)
-        all_ll_code.append(translator.generate_ll())
+        try:
+            parser = ClassParser(binary_data, mapping)
+            parser.parse()
+            translator = BytecodeToLLVMTranslator(parser)
+            all_ll_code.append(translator.generate_ll())
+        except Exception as e:
+            print(f"  [スキップ] クラス解析エラー ({cf}): {e}")
 
     final_ir = "\n".join(all_ll_code)
     
     with open(output_ll_path, 'w', encoding='utf-8') as f:
         f.write(final_ir)
         
-    print(f"[jar2ll] LLVM IR への完全バイナリ変換完了: {output_ll_path}")
+    print(f"[jar2ll] 全クラスのLLVM IR変換完了: {output_ll_path}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("使い方: python3 jar2ll.py <input.jar> <output.ll>")
         sys.exit(1)
         
-    convert_jar_to_ll(sys.argv[1], sys.argv[2])
-
+    mapping_file = "mapping.json"
+    convert_jar_to_ll(sys.argv[1], sys.argv[2], mapping_file)
