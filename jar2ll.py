@@ -233,24 +233,29 @@ class BytecodeToLLVMTranslator:
             ''
         ]
 
-        safe_class_name = self.class_name.replace("/", "_").replace(".", "_")
+        safe_class_name = self.class_name.replace("/", "_").replace(".", "_").replace("$", "_")
 
-        for method in self.methods:
+        for method_idx, method in enumerate(self.methods):
             m_name = method["name"]
+            m_desc = method["descriptor"]
             code = method["code"]
             
             if code is None:
                 continue
 
-            ret_type = "i32" if "I" in method["descriptor"] else "void"
+            ret_type = "i32" if "I" in m_desc else "void"
             
-            # 特殊文字（<init>など）をサニタイズして安全な関数名に変換
+            # 特殊文字（<init>など）をサニタイズ
             sanitized_m_name = m_name.replace("<", "_").replace(">", "_")
             
+            # ディスクリプタ（引数等の型情報）も安全な文字列に変換して関数名に組み込み、オーバーロードを完全回避！
+            sanitized_desc = m_desc.replace("/", "_").replace(".", "_").replace("(", "_").replace(")", "_").replace("[", "arr_").replace(";", "").replace("$", "_")
+            
+            # main関数以外は、クラス名 + メソッド名 + 引数シグネチャ + インデックスで完全に一意にする
             if m_name == "main":
                 func_name = "@main"
             else:
-                func_name = f"@{safe_class_name}_{sanitized_m_name}"
+                func_name = f"@{safe_class_name}_{sanitized_m_name}_{sanitized_desc}_{method_idx}"
 
             llvm_ir.append(f"define {ret_type} {func_name}() {{")
             
@@ -270,6 +275,7 @@ class BytecodeToLLVMTranslator:
             llvm_ir.append("}\n")
 
         return "\n".join(llvm_ir)
+
 
 def convert_jar_to_ll(jar_path, output_ll_path, mapping_path):
     print(f"[jar2ll] JSON設定を用いたバイナリ解析開始: {jar_path}")
