@@ -172,13 +172,9 @@ class BytecodeToLLVMTranslator:
                 index = code_bytes[i]
                 i += 1
                 val = self.cp.get(index, 0)
-                if isinstance(val, int):
-                    stack.append(val)
-                else:
-                    stack.append(0)
+                stack.append(val if isinstance(val, int) else 0)
             elif 0x03 <= opcode <= 0x08:
-                val = opcode - 0x03
-                stack.append(val)
+                stack.append(opcode - 0x03)
             elif opcode == 0x10:
                 val = struct.unpack_from('b', code_bytes, i)[0]
                 i += 1
@@ -198,13 +194,11 @@ class BytecodeToLLVMTranslator:
                 var_idx = code_bytes[i]
                 i += 1
                 if stack:
-                    val = stack.pop()
-                    ir_lines.append(f"  store i32 {val}, ptr %local_{var_idx}")
+                    ir_lines.append(f"  store i32 {stack.pop()}, ptr %local_{var_idx}")
             elif 0x3b <= opcode <= 0x3e:
                 var_idx = opcode - 0x3b
                 if stack:
-                    val = stack.pop()
-                    ir_lines.append(f"  store i32 {val}, ptr %local_{var_idx}")
+                    ir_lines.append(f"  store i32 {stack.pop()}, ptr %local_{var_idx}")
             elif opcode == 0x60:
                 right = stack.pop() if stack else 0
                 left = stack.pop() if stack else 0
@@ -218,10 +212,11 @@ class BytecodeToLLVMTranslator:
                 ir_lines.append(f"  {r} = sub i32 {left}, {right}")
                 stack.append(r)
             elif opcode == 0xac:
-                val = stack.pop() if stack else 0
-                ir_lines.append(f"  ret i32 {val}")
+                ir_lines.append(f"  ret i32 {stack.pop() if stack else 0}")
             elif opcode == 0xb1:
                 ir_lines.append("  ret void")
+            else:
+                pass
 
         return ir_lines
 
