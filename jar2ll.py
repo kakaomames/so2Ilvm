@@ -254,7 +254,8 @@ class BytecodeToLLVMTranslator:
 
             llvm_ir.append(f"define {ret_type} {func_name}() {{")
             
-            for idx in range(code["max_locals"]):
+            num_locals = max(code["max_locals"], 32)
+            for idx in range(num_locals):
                 llvm_ir.append(f"  %local_{idx} = alloca i32, align 4")
 
             translated_lines = self.translate_bytecode(code["code"])
