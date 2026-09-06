@@ -235,7 +235,7 @@ class BytecodeToLLVMTranslator:
 
         safe_class_name = self.class_name.replace("/", "_").replace(".", "_").replace("$", "_")
 
-          for method_idx, method in enumerate(self.methods):
+        for method_idx, method in enumerate(self.methods):
             m_name = method["name"]
             m_desc = method["descriptor"]
             code = method["code"]
@@ -243,18 +243,13 @@ class BytecodeToLLVMTranslator:
             if code is None:
                 continue
 
-            # 修正前： "I" in m_desc （引数のIに騙される）
-            # 修正後： 閉じカッコ ')' の直後にある文字を正確にパースして戻り値型を判定！
             ret_type = "void"
             if ")" in m_desc:
                 return_sig = m_desc.split(")")[-1]
                 if return_sig in ("I", "Z", "C", "B", "S"):
                     ret_type = "i32"
             
-            # 特殊文字（<init>など）をサニタイズ
             sanitized_m_name = m_name.replace("<", "_").replace(">", "_")
-            
-            # ディスクリプタも安全な文字列に変換して関数名に組み込む
             sanitized_desc = m_desc.replace("/", "_").replace(".", "_").replace("(", "_").replace(")", "_").replace("[", "arr_").replace(";", "").replace("$", "_")
             
             if m_name == "main":
@@ -263,7 +258,6 @@ class BytecodeToLLVMTranslator:
                 func_name = f"@{safe_class_name}_{sanitized_m_name}_{sanitized_desc}_{method_idx}"
 
             llvm_ir.append(f"define {ret_type} {func_name}() {{")
-
             
             num_locals = max(code["max_locals"], 32)
             for idx in range(num_locals):
@@ -281,7 +275,6 @@ class BytecodeToLLVMTranslator:
             llvm_ir.append("}\n")
 
         return "\n".join(llvm_ir)
-
 
 def convert_jar_to_ll(jar_path, output_ll_path, mapping_path):
     print(f"[jar2ll] JSON設定を用いたバイナリ解析開始: {jar_path}")
