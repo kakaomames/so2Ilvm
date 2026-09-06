@@ -233,6 +233,8 @@ class BytecodeToLLVMTranslator:
             ''
         ]
 
+        safe_class_name = self.class_name.replace("/", "_").replace(".", "_")
+
         for method in self.methods:
             m_name = method["name"]
             code = method["code"]
@@ -241,7 +243,14 @@ class BytecodeToLLVMTranslator:
                 continue
 
             ret_type = "i32" if "I" in method["descriptor"] else "void"
-            func_name = "@main" if m_name == "main" else f"@{m_name}"
+            
+            # 特殊文字（<init>など）をサニタイズして安全な関数名に変換
+            sanitized_m_name = m_name.replace("<", "_").replace(">", "_")
+            
+            if m_name == "main":
+                func_name = "@main"
+            else:
+                func_name = f"@{safe_class_name}_{sanitized_m_name}"
 
             llvm_ir.append(f"define {ret_type} {func_name}() {{")
             
