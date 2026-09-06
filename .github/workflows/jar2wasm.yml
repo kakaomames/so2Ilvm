@@ -1,0 +1,46 @@
+name: Full Jar2Wasm Pipeline
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: リポジトリのチェックアウト
+        uses: actions/checkout@v4
+
+      - name: 必要なコンパイラ＆ツールのインストール
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            default-jdk \
+            python3 \
+            llvm \
+            clang \
+            lld \
+            wabt \
+            unzip
+
+      - name: サンプルJARの用意（テスト用）
+        run: |
+          echo "Simple"
+          curl -L "https://piston-data.mojang.com/v1/objects/2dc72797acbc1b63fc16a11c4ac393605f453754/client.jar" -o target.jar
+
+      - name: 全クラス一括解析・LLVM IR生成スクリプトの実行
+        run: |
+          python3 jar2ll.py target.jar output.ll
+
+      - name: LLVM IR から .wasm へのコンパイルとリンク
+        run: |
+          llvm-as output.ll -o output.bc
+          llc -march=wasm32 -filetype=obj output.bc -o output.o
+          wasm-ld --no-entry --export=main -o output.wasm output.o
+          ls -la output.wasm
+
+      - name: テキスト形式 (WAT) の書き出し確認
+        run: |
+          wasm2wat output.wasm -o output.wat
+          cat output.wat
