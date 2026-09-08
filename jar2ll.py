@@ -1,325 +1,196 @@
-import os
-import sys
+#!/usr/bin/env python3
+import argparse
 import struct
+import sys
 import zipfile
-import glob
-import json
 
-class ClassParser:
-    def __init__(self, data, mapping):
+class JavaClassParser:
+    def __init__(self, data):
         self.data = data
         self.offset = 0
-        self.constant_pool = {}
-        self.methods = []
-        self.class_name = ""
-        self.mapping = mapping["constant_pool_tags"]
+        self.constant_pool = []
 
-    def read_u1(self):
-        val = self.data[self.offset]
-        self.offset += 1
-        return val
-
-    def read_u2(self):
-        val = struct.unpack_from('>H', self.data, self.offset)[0]
-        self.offset += 2
-        return val
-
-    def read_u4(self):
-        val = struct.unpack_from('>I', self.data, self.offset)[0]
-        self.offset += 4
-        return val
+    def read(self, fmt):
+        size = struct.calcsize(fmt)
+        result = struct.unpack_from(fmt, self.data, self.offset)
+        self.offset += size
+        return result
 
     def parse(self):
-        magic = self.read_u4()
+        magic, = self.read(">I")
         if magic != 0xCAFEBABE:
-            raise ValueError("無効なマジックナンバーです。Javaクラスファイルではありません。")
+            print(f"[Error] 不正なマジックナンバー: {hex(magic)}", file=sys.stderr)
+            return False
 
-        self.read_u2()  # minor_version
-        self.read_u2()  # major_version
+        minor, major = self.read(">HH")
+        print(f"[Info] Classバージョン: Major={major}, Minor={minor}")
 
-        cp_count = self.read_u2()
+        cp_count, = self.read(">H")
+        self.constant_pool = [None] * cp_count
+        
         i = 1
         while i < cp_count:
-            tag_num = self.read_u1()
-            tag_name = self.mapping.get(str(tag_num))
-
-            if not tag_name:
-                raise ValueError(f"未対応の定数プールタグ番号: {tag_num} (インデックス: {i})")
-
-            if tag_name == "CONSTANT_Utf8":
-                length = self.read_u2()
-                bytes_val = self.data[self.offset:self.offset+length]
+            tag, = self.read(">B")
+            if tag == 1: # CONSTANT_Utf8
+                length, = self.read(">H")
+                string_data = self.data[self.offset:self.offset+length].decode('utf-8', errors='ignore')
                 self.offset += length
-                self.constant_pool[i] = bytes_val.decode('utf-8', errors='ignore')
-            elif tag_name == "CONSTANT_Integer":
-                val = self.read_u4()
-                self.constant_pool[i] = val
-            elif tag_name == "CONSTANT_Float":
-                val = self.read_u4()
-                self.constant_pool[i] = val
-            elif tag_name in ("CONSTANT_Long", "CONSTANT_Double"):
-                val = self.read_u4() + (self.read_u4() << 32)
-                self.constant_pool[i] = val
+                self.constant_pool[i] = {"tag": "Utf8", "value": string_data}
+            elif tag in (7, 8): # Class, String
+                name_index, = self.read(">H")
+                self.constant_pool[i] = {"tag": "Ref", "index": name_index}
+            elif tag in (9, 10, 11): # Fieldref, Methodref
+                class_index, name_and_type_index = self.read(">HH")
+                self.constant_pool[i] = {"tag": "MemberRef", "class": class_index, "nat": name_and_type_index}
+            elif tag == 12: # NameAndType
+                name_index, descriptor_index = self.read(">HH")
+                self.constant_pool[i] = {"tag": "NameAndType", "name": name_index, "desc": descriptor_index}
+            elif tag in (3, 4): # Integer, Float
+                self.read(">I")
+                self.constant_pool[i] = {"tag": "Value"}
+            elif tag in (5, 6): # Long, Double
+                self.read(">Q")
+                self.constant_pool[i] = {"tag": "ValueLong"}
                 i += 1
-                self.constant_pool[i] = None
-            elif tag_name in ("CONSTANT_Class", "CONSTANT_String"):
-                val = self.read_u2()
-                self.constant_pool[i] = val
-            elif tag_name in ("CONSTANT_Fieldref", "CONSTANT_Methodref", "CONSTANT_InterfaceMethodref", "CONSTANT_NameAndType", "CONSTANT_InvokeDynamic"):
-                val1 = self.read_u2()
-                val2 = self.read_u2()
-                self.constant_pool[i] = (val1, val2)
-            elif tag_name == "CONSTANT_MethodHandle":
-                self.read_u1()
-                self.read_u2()
-                self.constant_pool[i] = None
-            elif tag_name == "CONSTANT_MethodType":
-                self.read_u2()
-                self.constant_pool[i] = None
+            elif tag in (15, 16, 18, 19, 20):
+                self.read(">H")
+                self.constant_pool[i] = {"tag": "InvokeDynamic"}
+            else:
+                self.constant_pool[i] = {"tag": f"Unknown({tag})"}
             i += 1
 
-        self.read_u2()  # access_flags
-        this_class_idx = self.read_u2()
-        super_class_idx = self.read_u2()
+        print(f"[Info] 定数プールパース完了 (要素数: {len(self.constant_pool)-1})")
+        
+        self.read(">HHHH")
+        interfaces_count, = self.read(">H")
+        self.offset += interfaces_count * 2
 
-        utf8_idx = self.constant_pool[this_class_idx]
-        self.class_name = self.constant_pool[utf8_idx]
-
-        interfaces_count = self.read_u2()
-        for _ in range(interfaces_count):
-            self.read_u2()
-
-        fields_count = self.read_u2()
+        fields_count, = self.read(">H")
         for _ in range(fields_count):
-            self.read_u2()
-            self.read_u2()
-            self.read_u2()
-            attr_count = self.read_u2()
-            for _ in range(attr_count):
-                self.read_u2()
-                attr_len = self.read_u4()
+            self.read(">HH")
+            attributes_count, = self.read(">H")
+            for _ in range(attributes_count):
+                self.read(">H")
+                attr_len, = self.read(">I")
                 self.offset += attr_len
 
-        methods_count = self.read_u2()
+        methods_count, = self.read(">H")
+        main_bytecode = None
+        
         for _ in range(methods_count):
-            access_flags = self.read_u2()
-            name_idx = self.read_u2()
-            desc_idx = self.read_u2()
+            access_flags, name_index, descriptor_index, attributes_count = self.read(">HHHH")
+            method_name = self.constant_pool[name_index]["value"]
             
-            method_name = self.constant_pool[name_idx]
-            method_desc = self.constant_pool[desc_idx]
-
-            attr_count = self.read_u2()
-            code_attr = None
-            for _ in range(attr_count):
-                attr_name_idx = self.read_u2()
-                attr_len = self.read_u4()
-                attr_name = self.constant_pool[attr_name_idx]
+            for _ in range(attributes_count):
+                attr_name_index, = self.read(">H")
+                attr_len, = self.read(">I")
+                attr_name = self.constant_pool[attr_name_index]["value"]
                 
-                if attr_name == "Code":
-                    max_stack = self.read_u2()
-                    max_locals = self.read_u2()
-                    code_length = self.read_u4()
-                    code_bytes = self.data[self.offset:self.offset+code_length]
+                if attr_name == "Code" and method_name == "main":
+                    max_stack, max_locals, code_length = self.read(">HHI")
+                    main_bytecode = self.data[self.offset : self.offset + code_length]
                     self.offset += code_length
                     
-                    exception_table_length = self.read_u2()
+                    exception_table_length, = self.read(">H")
                     self.offset += exception_table_length * 8
-                    
-                    sub_attr_count = self.read_u2()
-                    for _ in range(sub_attr_count):
-                        self.read_u2()
-                        sub_attr_len = self.read_u4()
-                        self.offset += sub_attr_len
-                        
-                    code_attr = {
-                        "max_stack": max_stack,
-                        "max_locals": max_locals,
-                        "code": code_bytes
-                    }
+                    code_attr_count, = self.read(">H")
+                    for _ in range(code_attr_count):
+                        self.read(">H")
+                        l, = self.read(">I")
+                        self.offset += l
                 else:
                     self.offset += attr_len
 
-            self.methods.append({
-                "name": method_name,
-                "descriptor": method_desc,
-                "code": code_attr
-            })
+        if main_bytecode:
+            return main_bytecode
+        return False
 
-class BytecodeToLLVMTranslator:
-    def __init__(self, class_parser):
-        self.cp = class_parser.constant_pool
-        self.class_name = class_parser.class_name
-        self.methods = class_parser.methods
+def generate_llvm(parser, bytecode):
+    llvm_lines = [
+        "; Generated by Custom jar2ll CLI (JDK 25)",
+        "declare i32 @jdk_unimplemented_instruction(i32)",
+        "declare void @jdk_init_runtime()",
+        "declare void @jdk_print_string(i8*)",
+        "",
+        "define void @Java_Main_main() {",
+        "entry:"
+    ]
 
-    def translate_bytecode(self, code_bytes, start_reg_counter, local_regs):
-        ir_lines = []
-        stack = []
-        reg_counter = start_reg_counter
+    pc = 0
+    reg_id = 1
+    simulated_stack = []
 
-        def new_reg():
-            nonlocal reg_counter
-            r = f"%{reg_counter}"
-            reg_counter += 1
-            return r
-
-        i = 0
-        while i < len(code_bytes):
-            opcode = code_bytes[i]
-            i += 1
-
-            if opcode == 0x12:
-                index = code_bytes[i]
-                i += 1
-                val = self.cp.get(index, 0)
-                stack.append(val if isinstance(val, int) else 0)
-            elif 0x03 <= opcode <= 0x08:
-                stack.append(opcode - 0x03)
-            elif opcode == 0x10:
-                val = struct.unpack_from('b', code_bytes, i)[0]
-                i += 1
-                stack.append(val)
-            elif opcode == 0x15:
-                var_idx = code_bytes[i]
-                i += 1
-                r = new_reg()
-                loc_reg = local_regs[var_idx] if var_idx < len(local_regs) else local_regs[0]
-                ir_lines.append(f"  {r} = load i32, ptr {loc_reg}")
-                stack.append(r)
-            elif 0x1a <= opcode <= 0x1d:
-                var_idx = opcode - 0x1a
-                r = new_reg()
-                loc_reg = local_regs[var_idx] if var_idx < len(local_regs) else local_regs[0]
-                ir_lines.append(f"  {r} = load i32, ptr {loc_reg}")
-                stack.append(r)
-            elif opcode == 0x36:
-                var_idx = code_bytes[i]
-                i += 1
-                if stack:
-                    loc_reg = local_regs[var_idx] if var_idx < len(local_regs) else local_regs[0]
-                    ir_lines.append(f"  store i32 {stack.pop()}, ptr {loc_reg}")
-            elif 0x3b <= opcode <= 0x3e:
-                var_idx = opcode - 0x3b
-                if stack:
-                    loc_reg = local_regs[var_idx] if var_idx < len(local_regs) else local_regs[0]
-                    ir_lines.append(f"  store i32 {stack.pop()}, ptr {loc_reg}")
-            elif opcode == 0x60:
-                right = stack.pop() if stack else 0
-                left = stack.pop() if stack else 0
-                r = new_reg()
-                ir_lines.append(f"  {r} = add i32 {left}, {right}")
-                stack.append(r)
-            elif opcode == 0x64:
-                right = stack.pop() if stack else 0
-                left = stack.pop() if stack else 0
-                r = new_reg()
-                ir_lines.append(f"  {r} = sub i32 {left}, {right}")
-                stack.append(r)
-            elif opcode == 0xac:
-                ir_lines.append(f"  ret i32 {stack.pop() if stack else 0}")
-            elif opcode == 0xb1:
-                ir_lines.append("  ret void")
-            else:
-                pass
-
-        return ir_lines
-
-    def generate_ll(self):
-        llvm_ir = [
-            '; --- JSON-driven Binary Generated LLVM IR ---',
-            'target datalayout = "e-m:e-p:32:32-i64:64-n32:64-S128"',
-            'target triple = "wasm32-unknown-unknown"',
-            ''
-        ]
-
-        safe_class_name = self.class_name.replace("/", "_").replace(".", "_").replace("$", "_")
-
-        for method_idx, method in enumerate(self.methods):
-            m_name = method["name"]
-            m_desc = method["descriptor"]
-            code = method["code"]
-            
-            if code is None:
-                continue
-
-            ret_type = "void"
-            if ")" in m_desc:
-                return_sig = m_desc.split(")")[-1]
-                if return_sig in ("I", "Z", "C", "B", "S"):
-                    ret_type = "i32"
-            
-            sanitized_m_name = m_name.replace("<", "_").replace(">", "_")
-            sanitized_desc = m_desc.replace("/", "_").replace(".", "_").replace("(", "_").replace(")", "_").replace("[", "arr_").replace(";", "").replace("$", "_")
-            
-            if m_name == "main":
-                func_name = "@main"
-            else:
-                func_name = f"@{safe_class_name}_{sanitized_m_name}_{sanitized_desc}_{method_idx}"
-
-            llvm_ir.append(f"define {ret_type} {func_name}() {{")
-            
-            # LLVMのSSA連番ルールに従い、allocaを%1から順番に割り振る
-            reg_counter = 1
-            num_locals = max(code["max_locals"], 32)
-            local_regs = []
-            for idx in range(num_locals):
-                reg_name = f"%{reg_counter}"
-                reg_counter += 1
-                local_regs.append(reg_name)
-                llvm_ir.append(f"  {reg_name} = alloca i32, align 4")
-
-            translated_lines = self.translate_bytecode(code["code"], reg_counter, local_regs)
-            llvm_ir.extend(translated_lines)
-
-            if not any("ret" in line for line in translated_lines):
-                if ret_type == "i32":
-                    llvm_ir.append("  ret i32 0")
-                else:
-                    llvm_ir.append("  ret void")
-
-            llvm_ir.append("}\n")
-
-        return "\n".join(llvm_ir)
-
-def convert_jar_to_ll(jar_path, output_ll_path, mapping_path):
-    print(f"[jar2ll] JSON設定を用いたバイナリ解析開始: {jar_path}")
-    
-    with open(mapping_path, 'r', encoding='utf-8') as f:
-        mapping = json.load(f)
-
-    extract_dir = "extracted_classes"
-    os.makedirs(extract_dir, exist_ok=True)
-    
-    with zipfile.ZipFile(jar_path, 'r') as z:
-        z.extractall(extract_dir)
+    while pc < len(bytecode):
+        opcode = bytecode[pc]
         
-    class_files = glob.glob(os.path.join(extract_dir, "**", "*.class"), recursive=True)
-    print(f"[jar2ll] 発見されたクラス数: {len(class_files)}")
+        if opcode == 0xb2: # getstatic
+            field_idx, = struct.unpack_from(">H", bytecode, pc + 1)
+            llvm_lines.append(f"  ; [pc {pc}] getstatic")
+            llvm_lines.append(f"  %{reg_id} = alloca i8*, align 8")
+            simulated_stack.append(f"%{reg_id}")
+            reg_id += 1
+            pc += 3
+        elif opcode == 0x12: # ldc
+            cp_idx = bytecode[pc + 1]
+            llvm_lines.append(f"  ; [pc {pc}] ldc")
+            llvm_lines.append(f"  %{reg_id} = alloca i8*, align 8")
+            simulated_stack.append(f"\"_string_cp_{cp_idx}\"")
+            reg_id += 1
+            pc += 2
+        elif opcode == 0xb6: # invokevirtual
+            method_idx, = struct.unpack_from(">H", bytecode, pc + 1)
+            method_ref = parser.constant_pool[method_idx]
+            nat_ref = parser.constant_pool[method_ref["nat"]]
+            method_name = parser.constant_pool[nat_ref["name"]]["value"]
+            llvm_lines.append(f"  ; [pc {pc}] invokevirtual: {method_name}")
+            
+            if len(simulated_stack) >= 2:
+                simulated_stack.pop()
+                simulated_stack.pop()
+                if method_name == "println":
+                    llvm_lines.append(f"  call void @jdk_print_string(i8* null)")
+            pc += 3
+        elif opcode == 0xb1: # return
+            llvm_lines.append(f"  ; [pc {pc}] return")
+            llvm_lines.append("  ret void")
+            pc += 1
+        else:
+            llvm_lines.append(f"  ; [pc {pc}] 未対応命令: {hex(opcode)}")
+            llvm_lines.append(f"  %{reg_id} = call i32 @jdk_unimplemented_instruction(i32 {opcode})")
+            reg_id += 1
+            pc += 1
 
-    all_ll_code = []
-    for cf in class_files:
-        with open(cf, "rb") as f:
-            binary_data = f.read()
-        
-        try:
-            parser = ClassParser(binary_data, mapping)
-            parser.parse()
-            translator = BytecodeToLLVMTranslator(parser)
-            all_ll_code.append(translator.generate_ll())
-        except Exception as e:
-            print(f"  [スキップ] クラス解析エラー ({cf}): {e}")
+    llvm_lines.append("}")
+    llvm_lines.extend(["", "define i32 @main() {", "  call void @jdk_init_runtime()", "  call void @Java_Main_main()", "  ret i32 0", "}"])
+    return "\n".join(llvm_lines)
 
-    final_ir = "\n".join(all_ll_code)
-    
-    with open(output_ll_path, 'w', encoding='utf-8') as f:
-        f.write(final_ir)
-        
-    print(f"[jar2ll] 全クラスのLLVM IR変換完了: {output_ll_path}")
+def main():
+    parser = argparse.ArgumentParser(description="Java to LLVM IR CLI Converter")
+    parser.add_argument("input_file", help="Path to .class or .jar")
+    args = parser.parse_args()
+
+    data = None
+    if args.input_file.endswith(".jar"):
+        with zipfile.ZipFile(args.input_file, 'r') as jar:
+            class_files = [f for f in jar.namelist() if f.endswith(".class")]
+            if not class_files:
+                sys.exit(1)
+            with jar.open(class_files[0]) as f:
+                data = f.read()
+    else:
+        with open(args.input_file, "rb") as f:
+            data = f.read()
+
+    jcp = JavaClassParser(data)
+    bytecode = jcp.parse()
+    if bytecode:
+        llvm_text = generate_llvm(jcp, bytecode)
+        with open("output.ll", "w") as f:
+            f.write(llvm_text)
+        print("[Success] output.ll を生成しました！")
+    else:
+        print("[Error] 変換に失敗しました。")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("使い方: python3 jar2ll.py <input.jar> <output.ll>")
-        sys.exit(1)
-        
-    mapping_file = "mapping.json"
-    convert_jar_to_ll(sys.argv[1], sys.argv[2], mapping_file)
+    main()
