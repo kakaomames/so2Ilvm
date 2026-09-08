@@ -39,7 +39,7 @@ class JavaClassParser:
             elif tag in (7, 8): # Class, String
                 name_index, = self.read(">H")
                 self.constant_pool[i] = {"tag": "Ref", "index": name_index}
-            elif tag in (9, 10, 11): # Fieldref, Methodref
+            elif tag in (9, 10, 11): # Fieldref, Methodref, InterfaceMethodref
                 class_index, name_and_type_index = self.read(">HH")
                 self.constant_pool[i] = {"tag": "MemberRef", "class": class_index, "nat": name_and_type_index}
             elif tag == 12: # NameAndType
@@ -54,6 +54,10 @@ class JavaClassParser:
                 i += 1
             elif tag in (15, 16, 18, 19, 20):
                 self.read(">H")
+                if tag == 15:
+                    self.read(">B") # reference_kind (1バイト追加)
+                else:
+                    self.read(">H") # その他のインデックス
                 self.constant_pool[i] = {"tag": "InvokeDynamic"}
             else:
                 self.constant_pool[i] = {"tag": f"Unknown({tag})"}
@@ -61,19 +65,22 @@ class JavaClassParser:
 
         print(f"[Info] 定数プールパース完了 (要素数: {len(self.constant_pool)-1})")
         
+        # クラス情報等のスキップ
         self.read(">HHHH")
         interfaces_count, = self.read(">H")
         self.offset += interfaces_count * 2
 
+        # フィールド領域のパース（修正版）
         fields_count, = self.read(">H")
         for _ in range(fields_count):
-            self.read(">HH")
+            self.read(">HH") # access_flags, name_index, descriptor_index
             attributes_count, = self.read(">H")
             for _ in range(attributes_count):
-                self.read(">H")
-                attr_len, = self.read(">I")
+                self.read(">H") # attribute_name_index (2バイト)
+                attr_len, = self.read(">I") # attribute_length (4バイト)
                 self.offset += attr_len
 
+        # メソッド領域のパース
         methods_count, = self.read(">H")
         main_bytecode = None
         
@@ -95,8 +102,8 @@ class JavaClassParser:
                     self.offset += exception_table_length * 8
                     code_attr_count, = self.read(">H")
                     for _ in range(code_attr_count):
-                        self.read(">H")
-                        l, = self.read(">I")
+                        self.read(">H") # attr_name
+                        l, = self.read(">I") # attr_len
                         self.offset += l
                 else:
                     self.offset += attr_len
@@ -175,6 +182,7 @@ def main():
             class_files = [f for f in jar.namelist() if f.endswith(".class")]
             if not class_files:
                 sys.exit(1)
+            # 最初に見つかったクラスファイルを解析
             with jar.open(class_files[0]) as f:
                 data = f.read()
     else:
