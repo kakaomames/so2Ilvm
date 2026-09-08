@@ -51,33 +51,41 @@ class JavaClassParser:
             elif tag in (5, 6): # Long, Double
                 self.read(">Q")
                 self.constant_pool[i] = {"tag": "ValueLong"}
-                i += 1
-            elif tag in (15, 16, 18, 19, 20):
+                i += 1  # 2枠消費するルール
+            elif tag == 15: # MethodHandle (1+2=3バイト)
+                self.read(">BH")
+                self.constant_pool[i] = {"tag": "MethodHandle"}
+            elif tag == 16: # MethodType (2バイト)
                 self.read(">H")
-                if tag == 15:
-                    self.read(">B") # reference_kind (1バイト追加)
-                else:
-                    self.read(">H") # その他のインデックス
+                self.constant_pool[i] = {"tag": "MethodType"}
+            elif tag in (17, 18): # Dynamic, InvokeDynamic (2+2=4バイト)
+                self.read(">HH")
                 self.constant_pool[i] = {"tag": "InvokeDynamic"}
+            elif tag in (19, 20): # Module, Package (2バイト)
+                self.read(">H")
+                self.constant_pool[i] = {"tag": "ModulePackage"}
             else:
-                self.constant_pool[i] = {"tag": f"Unknown({tag})"}
+                print(f"[Error] 未知の定数プールタグ: {tag} at offset {self.offset-1}", file=sys.stderr)
+                return False
             i += 1
 
         print(f"[Info] 定数プールパース完了 (要素数: {len(self.constant_pool)-1})")
         
-        # クラス情報等のスキップ
-        self.read(">HHHH")
+        # クラス情報等の取得（アクセスフラグ、このクラス、親クラス）
+        self.read(">HHH")
+        
+        # インターフェースのスキップ
         interfaces_count, = self.read(">H")
         self.offset += interfaces_count * 2
 
-        # フィールド領域のパース（修正版）
+        # フィールド領域のパース
         fields_count, = self.read(">H")
         for _ in range(fields_count):
-            self.read(">HH") # access_flags, name_index, descriptor_index
+            self.read(">HHH") # access_flags, name_index, descriptor_index
             attributes_count, = self.read(">H")
             for _ in range(attributes_count):
-                self.read(">H") # attribute_name_index (2バイト)
-                attr_len, = self.read(">I") # attribute_length (4バイト)
+                self.read(">H") # attribute_name_index
+                attr_len, = self.read(">I") # attribute_length
                 self.offset += attr_len
 
         # メソッド領域のパース
@@ -182,8 +190,7 @@ def main():
             class_files = [f for f in jar.namelist() if f.endswith(".class")]
             if not class_files:
                 sys.exit(1)
-            # 最初に見つかったクラスファイルを解析
-            with jar.open(class_files[0]) as f:
+            with jar.open(class_files[0]) as f: # 最初のクラスファイルを確実に選択
                 data = f.read()
     else:
         with open(args.input_file, "rb") as f:
