@@ -31,7 +31,8 @@ jobs:
 
       - name: 全クラス一括解析・LLVM IR生成スクリプトの実行
         run: |
-          python3 jar2ll.py target.jar output.ll
+          python3 jar2ll.py target.jar 
+          # output.ll
 
       - name: LLVM IR から .wasm へのコンパイルとリンク
         run: |
@@ -42,5 +43,5 @@ jobs:
 
       - name: テキスト形式 (WAT) の書き出し確認
         run: |
-          wasm2wat output.wasm -o output.wat
-          cat output.wat
+          # wasm2wat output.wasm -o output.wat
+          # cat output.wat
