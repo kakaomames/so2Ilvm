@@ -57,6 +57,7 @@ jobs:
           find ./libraries -name "*.jar" | paste -sd, -
           
           mkdir -p ./dist
+          cp target.jar dist/target.jar
           
           java -jar bytecoder-cli.jar compile wasm \
             -classpath="$FULL_CLASSPATH" \
