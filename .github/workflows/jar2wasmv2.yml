@@ -55,7 +55,7 @@ jobs:
           # https://repo.maven.apache.org/maven2/de/mirkosertic/bytecoder/bytecoder-cli/2023-05-19/bytecoder-cli-2023-05-19-executable.jar
 
       - name: 成果物（Wasm/JS）のアップロード
-        uses: actions/artifacts@v4
+        uses: actions/upload-artifact@v4  # <-- ここを単数形の正しいアクション名に修正
         with:
           name: compiled-wasm-client
           path: ./dist/
