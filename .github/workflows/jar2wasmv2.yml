@@ -54,6 +54,8 @@ jobs:
           CLASSPATH_STR=$(find ./libraries -name "*.jar" | paste -sd, -)
           FULL_CLASSPATH="target.jar,$CLASSPATH_STR"
           
+          find ./libraries -name "*.jar" | paste -sd, -
+          
           mkdir -p ./dist
           
           java -jar bytecoder-cli.jar compile wasm \
