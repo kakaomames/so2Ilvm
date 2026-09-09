@@ -1,1 +1,61 @@
-https://repo.maven.apache.org/maven2/de/mirkosertic/bytecoder/bytecoder-cli/2023-05-19/bytecoder-cli-2023-05-19-executable.jar
+name: Full Jar2Wasm Pipeline
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: リポジトリのチェックアウト
+        uses: actions/checkout@v4
+
+      - name: 必要なコンパイラ＆ツールのインストール
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            default-jdk \
+            python3 \
+            llvm \
+            clang \
+            lld \
+            wabt \
+            unzip
+
+      - name: サンプルJARの用意（テスト用）
+        run: |
+          echo "Simple"
+          curl -L "https://piston-data.mojang.com/v1/objects/2dc72797acbc1b63fc16a11c4ac393605f453754/client.jar" -o target.jar
+
+      - name: jar2wasm.jarの読み込み
+        run: |
+          curl -vLi "http://repo.maven.apache.org/maven2/de/mirkosertic/bytecoder/bytecoder-cli/2023-05-19/bytecoder-cli-2023-05-19-executable.jar" -o "bytecoder-cli.jar"     
+
+          # output.ll
+
+      - name: jar2wasm
+        run: |
+          echo "Compiling JAR to WebAssembly..."
+          # Bytecoderを動かしてWasmと仲介用JSを直接生成する
+          # ※メインクラス名はテスト用にマイクラの標準起動口を指定
+          java -jar bytecoder-cli.jar \
+            -classpath=target.jar \
+            -mainclass=net.minecraft.client.main.Main \
+            -builddirectory=./dist \
+            -backend=wasm \
+            -minify=false
+          ls -la output.wasm
+
+      - name: テキスト形式 (WAT) の書き出し確認
+        run: |
+          # wasm2wat output.wasm -o output.wat
+          # cat output.wat
+          # https://repo.maven.apache.org/maven2/de/mirkosertic/bytecoder/bytecoder-cli/2023-05-19/bytecoder-cli-2023-05-19-executable.jar
+
+      - name: 成果物（Wasm/JS）のアップロード
+        uses: actions/artifacts@v4
+        with:
+          name: compiled-wasm-client
+          path: ./dist/
