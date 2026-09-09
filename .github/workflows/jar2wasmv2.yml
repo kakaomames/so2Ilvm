@@ -37,13 +37,15 @@ jobs:
     
       - name: 依存ライブラリ(JAR)の一括自動ダウンロード
         run: |
-          echo "Parsing JSON and downloading libraries for version ${MC_VERSION}..."
-          # JSONからライブラリのURLをパースして一括DL
-          jq -r '.libraries[].downloads.artifact.url // empty' version.json | while read -r url; do
-            filename=$(basename "$url")
-            echo "Downloading $filename..."
-            curl -sL "$url" -o "./libraries/$filename"
+          echo "Parsing JSON and downloading libraries dynamically..."
+          # urlとpathをタブ区切りで抜き出して1行ずつ処理する
+          jq -r '.libraries[].downloads.artifact | select(. != null) | "\(.url)\t\(.path)"' version.json | while IFS=$'\t' read -r url path; do
+            # 保存先のフォルダ階層を自動作成（例: ./libraries/com/mojang/logutils/...）
+            mkdir -p "./libraries/$(dirname "$path")"
+            echo "Downloading to ./libraries/$path ..."
+            curl -sL "$url" -o "./libraries/$path"
           done
+
 
       - name: BytecoderによるWasm一括生成
         run: |
