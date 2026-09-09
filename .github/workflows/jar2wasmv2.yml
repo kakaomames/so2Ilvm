@@ -9,10 +9,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: リポジトリのチェックアウト
+      - name: checkout
         uses: actions/checkout@v4
 
-      - name: 必要なコンパイラ＆ツールのインストール
+      - name: Install tools
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -24,31 +24,29 @@ jobs:
             wabt \
             unzip
 
-      - name: サンプルJARの用意（テスト用）
+      - name: Downloading to Minecraft Java Edition jar file by mojang.com
         run: |
           echo "Simple"
           curl -L "https://piston-data.mojang.com/v1/objects/fd19469fed4a4b4c15b2d5133985f0e3e7816a8a/client.jar" -o target.jar
 
-      - name: jar2wasm.jarの読み込み
+      - name: Downloading bytecoder.jar
         run: |
           curl -sSL "https://repo.maven.apache.org/maven2/de/mirkosertic/bytecoder/bytecoder-cli/2023-05-19/bytecoder-cli-2023-05-19-executable.jar" -o "bytecoder-cli.jar"     
           curl -sSL "https://piston-meta.mojang.com/v1/packages/efcf0cda32d7ebf3ce3938d9add0179cfedeb0c0/1.20.4.json" -o version.json
           jq version.json | head -20 version.json || true
           # output.ll
     
-      - name: 依存ライブラリ(JAR)の一括自動ダウンロード
+      - name: Download to lib jar file
         run: |
           echo "Parsing JSON and downloading libraries dynamically..."
-          # urlとpathをタブ区切りで抜き出して1行ずつ処理する
           jq -r '.libraries[].downloads.artifact | select(. != null) | "\(.url)\t\(.path)"' version.json | while IFS=$'\t' read -r url path; do
-            # 保存先のフォルダ階層を自動作成（例: ./libraries/com/mojang/logutils/...）
             mkdir -p "./libraries/$(dirname "$path")"
             echo "Downloading to ./libraries/$path ..."
             curl -sL "$url" -o "./libraries/$path"
           done
 
 
-      - name: BytecoderによるWasm一括生成
+      - name: Build wasm by Bytecoder
         run: |
           echo "Constructing Comma-Separated Classpath for Bytecoder..."
           CLASSPATH_STR=$(find ./libraries -name "*.jar" | paste -sd, -)
@@ -58,6 +56,7 @@ jobs:
           
           mkdir -p ./dist
           cp target.jar dist/target.jar
+          unzip -o test.jar -d ./dist
           
           java -jar bytecoder-cli.jar compile wasm \
             -classpath="$FULL_CLASSPATH" \
@@ -65,14 +64,14 @@ jobs:
             -builddirectory=./dist || echo "Bytecoder finished with some status/errors"
 
 
-      - name: テキスト形式 (WAT) の書き出し確認
+      - name: 404!
         run: |
           # wasm2wat output.wasm -o output.wat
           # cat output.wat
           # https://repo.maven.apache.org/maven2/de/mirkosertic/bytecoder/bytecoder-cli/2023-05-19/bytecoder-cli-2023-05-19-executable.jar
 
-      - name: 成果物（Wasm/JS）のアップロード
-        uses: actions/upload-artifact@v4  # <-- ここを単数形の正しいアクション名に修正
+      - name: Upload
+        uses: actions/upload-artifact@v4  
         with:
           name: compiled-wasm-client
           path: ./dist/
