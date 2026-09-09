@@ -27,7 +27,7 @@ jobs:
       - name: サンプルJARの用意（テスト用）
         run: |
           echo "Simple"
-          curl -L "https://piston-data.mojang.com/v1/objects/2dc72797acbc1b63fc16a11c4ac393605f453754/client.jar" -o target.jar
+          curl -L "https://piston-data.mojang.com/v1/objects/fd19469fed4a4b4c15b2d5133985f0e3e7816a8a/client.jar" -o target.jar
 
       - name: jar2wasm.jarの読み込み
         run: |
