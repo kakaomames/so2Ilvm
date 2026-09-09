@@ -32,19 +32,32 @@ jobs:
       - name: jar2wasm.jarの読み込み
         run: |
           curl -vLi "https://repo.maven.apache.org/maven2/de/mirkosertic/bytecoder/bytecoder-cli/2023-05-19/bytecoder-cli-2023-05-19-executable.jar" -o "bytecoder-cli.jar"     
-
+          curl -vLi "https://piston-meta.mojang.com/v1/packages/efcf0cda32d7ebf3ce3938d9add0179cfedeb0c0/1.20.4.json" -o 1.20.4.json
           # output.ll
-
-      - name: jar2wasm
+    
+      - name: 依存ライブラリ(JAR)の一括自動ダウンロード
         run: |
-          echo "Compiling JAR to WebAssembly..."
+          echo "Parsing JSON and downloading libraries for version ${MC_VERSION}..."
+          # JSONからライブラリのURLをパースして一括DL
+          jq -r '.libraries[].downloads.artifact.url // empty' version.json | while read -r url; do
+            filename=$(basename "$url")
+            echo "Downloading $filename..."
+            curl -sL "$url" -o "./libraries/$filename"
+          done
+
+      - name: BytecoderによるWasm一括生成
+        run: |
+          echo "Constructing Comma-Separated Classpath for Bytecoder..."
+          CLASSPATH_STR=$(find ./libraries -name "*.jar" | paste -sd, -)
+          FULL_CLASSPATH="target.jar,$CLASSPATH_STR"
+          
           mkdir -p ./dist
-          # コマンドの直後に 'compile wasm' を正しく配置
+          
           java -jar bytecoder-cli.jar compile wasm \
-            -classpath=target.jar \
+            -classpath="$FULL_CLASSPATH" \
             -mainclass=net.minecraft.client.main.Main \
             -builddirectory=./dist || echo "Bytecoder finished with some status/errors"
-          ls -la output.wasm | true
+
 
       - name: テキスト形式 (WAT) の書き出し確認
         run: |
