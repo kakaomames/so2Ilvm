@@ -56,7 +56,7 @@ jobs:
           
           mkdir -p ./dist
           cp target.jar dist/target.jar
-          unzip -o test.jar -d ./dist
+          unzip -o target.jar -d ./dist
           
           java -jar bytecoder-cli.jar compile wasm \
             -classpath="$FULL_CLASSPATH" \
