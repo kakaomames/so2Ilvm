@@ -31,7 +31,7 @@ jobs:
 
       - name: jar2wasm.jarの読み込み
         run: |
-          curl -vLi "http://repo.maven.apache.org/maven2/de/mirkosertic/bytecoder/bytecoder-cli/2023-05-19/bytecoder-cli-2023-05-19-executable.jar" -o "bytecoder-cli.jar"     
+          curl -vLi "https://repo.maven.apache.org/maven2/de/mirkosertic/bytecoder/bytecoder-cli/2023-05-19/bytecoder-cli-2023-05-19-executable.jar" -o "bytecoder-cli.jar"     
 
           # output.ll
 
