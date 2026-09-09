@@ -33,6 +33,7 @@ jobs:
         run: |
           curl -vLi "https://repo.maven.apache.org/maven2/de/mirkosertic/bytecoder/bytecoder-cli/2023-05-19/bytecoder-cli-2023-05-19-executable.jar" -o "bytecoder-cli.jar"     
           curl -vLi "https://piston-meta.mojang.com/v1/packages/efcf0cda32d7ebf3ce3938d9add0179cfedeb0c0/1.20.4.json" -o version.json
+          head -20 version.json
           # output.ll
     
       - name: 依存ライブラリ(JAR)の一括自動ダウンロード
