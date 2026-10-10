@@ -67,6 +67,9 @@ jobs:
           echo "LOG: LLVM、jq、RetDec依存パッケージのセットアップを開始します..."
           sudo apt-get update
           sudo apt-get install -y llvm jq curl wget python3 graphviz xz-utils
+          sudo apt-get update
+          sudo apt-get install -y wget xz-utils graphviz upx
+
           echo "LOG: 基本ツールのセットアップが完了しました！"
 
       - name: Install RetDec Binary 🦖
@@ -167,3 +170,6 @@ jobs:
         with:
           name: llvm-ir-grouped-artifacts
           path: llvm_ir_output/
+
+      - name: wasm化
+        run: bash ll2wasm.sh
