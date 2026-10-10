@@ -92,6 +92,12 @@ jobs:
 
           echo "LOG: 解凍処理が完了しました。RetDecバイナリを確認します..."
           find retdec_bin -name "retdec-decompiler*"
+          RETDEC_PATH=$(find $GITHUB_WORKSPACE/retdec_bin -name "retdec-decompiler" -o -name "retdec-decompiler.py" | head -n 1)
+          echo "LOG: 検出された RetDec パス: $RETDEC_PATH"
+        
+          chmod +x "$RETDEC_PATH"
+          # RetDecがプラグインやサポートファイルを見つけられるようにインストールディレクトリを教える
+          export RETDEC_INSTALL_DIR="$GITHUB_WORKSPACE/retdec_bin"
 
       - name: Run script
         env:
@@ -114,7 +120,8 @@ jobs:
           fi
 
           chmod +x "$RETDEC_PATH"
-
+          export RETDEC_INSTALL_DIR="$GITHUB_WORKSPACE/retdec_bin"
+          ls -F "$GITHUB_WORKSPACE/retdec_bin"
           # JSONからグループ一覧を取得してループ
           groups=$(jq -r '.groups | keys[]' so_targets.json)
 
