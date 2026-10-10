@@ -170,7 +170,7 @@ jobs:
           name: llvm-ir-grouped-artifacts
           path: llvm_ir_output/
 
-        - name: wasm化
+      - name: wasm化
         run: |
           for f in llvm_ir_output/**/*.ll; do
             if [ -f "$f" ]; then
