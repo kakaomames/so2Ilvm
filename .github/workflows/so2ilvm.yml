@@ -40,19 +40,27 @@ jobs:
       # 2. 8GBのスワップ領域を確保＆有効化
       - name: Setup 8GB Swap Space
         run: |
-          echo "=== スワップ設定前 ==="
+          echo "=== 既存のSwap状況 ==="
           free -h
+          sudo swapon --show
 
-          # 8GBのファイルを生成
+          # 既存のSwapを無効化して削除
+          sudo swapoff -a || true
+          sudo rm -f /swapfile
+
+          # 新しく8GBのSwapファイルを作成
           sudo fallocate -l 8G /swapfile
           sudo chmod 600 /swapfile
-          # スワップ領域としてフォーマット
           sudo mkswap /swapfile
-          # スワップを有効化
           sudo swapon /swapfile
 
-          echo "=== スワップ設定後 ==="
+          echo "=== 変更後のSwap状況 ==="
           free -h
+          sudo swapon --show
+
+
+          # echo "=== スワップ設定後 ==="
+          # free -h
 
       - name: Install LLVM, jq and dependencies 🛠️
         run: |
