@@ -66,9 +66,8 @@ jobs:
         run: |
           echo "LOG: LLVM、jq、RetDec依存パッケージのセットアップを開始します..."
           sudo apt-get update
-          sudo apt-get install -y llvm jq curl wget python3 graphviz xz-utils
-          sudo apt-get update
-          sudo apt-get install -y wget xz-utils graphviz upx
+          sudo apt-get install -y llvm jq curl wget python3 graphviz xz-utils upx lld
+          sudo apt-get install wasm-ld || true 
 
           echo "LOG: 基本ツールのセットアップが完了しました！"
 
