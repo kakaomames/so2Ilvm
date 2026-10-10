@@ -15,6 +15,45 @@ jobs:
       - name: Checkout Repository 🐙
         uses: actions/checkout@v4
 
+      # 1. 指定されたツール以外をごっそり削除してディスクとメモリを解放
+      - name: Purge Unwanted Packages
+        run: |
+          echo "=== 削除前のディスク・メモリ状況 ==="
+          df -h
+          free -h
+
+          # 保持するリスト: llvm, jq, curl, wget, python3, graphviz, xz-utils
+          # ついでにベースシステムに必須なパッケージやbuild-essentialの一部は誤爆しないようにしつつ一網打尽にアンインストール
+          sudo apt-get purge -y \
+            ghc* dotnet* php* ruby* sqlite3 \
+            firefox google-chrome-stable microsoft-edge-stable \
+            mysql* postgresql* redis* mongodb* \
+            libgl1-mesa-dri xserver-common \
+            llvm-* # まれに入る別バージョンの重複を削る（必要なら調整）
+
+          sudo apt-get autoremove -y --purge
+          sudo apt-get clean
+
+          echo "=== 削除後のディスク状況 ==="
+          df -h
+
+      # 2. 8GBのスワップ領域を確保＆有効化
+      - name: Setup 8GB Swap Space
+        run: |
+          echo "=== スワップ設定前 ==="
+          free -h
+
+          # 8GBのファイルを生成
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          # スワップ領域としてフォーマット
+          sudo mkswap /swapfile
+          # スワップを有効化
+          sudo swapon /swapfile
+
+          echo "=== スワップ設定後 ==="
+          free -h
+
       - name: Install LLVM, jq and dependencies 🛠️
         run: |
           echo "LOG: LLVM、jq、RetDec依存パッケージのセットアップを開始します..."
